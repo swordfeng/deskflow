@@ -596,7 +596,9 @@ bool ArchNetworkWinsock::setNoDelayOnSocket(ArchSocket s, bool noDelay)
   assert(s != nullptr);
 
   // get old state
-  BOOL oflag;
+  // Some Winsock providers return a one-byte boolean even for a BOOL buffer.
+  // Keep the remaining bytes zero instead of comparing uninitialized memory.
+  BOOL oflag = FALSE;
   int size = sizeof(oflag);
   if (getsockopt_winsock(s->m_socket, IPPROTO_TCP, TCP_NODELAY, &oflag, &size) == SOCKET_ERROR) {
     throwError(getsockerror_winsock());

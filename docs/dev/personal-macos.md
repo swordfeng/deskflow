@@ -2,7 +2,8 @@
 
 Branch: `personal/macos-input-source-fix`
 
-Base: upstream commit `1d530d764` (`v1.26.0-512`), matching the previously installed build.
+Base: pinned upstream commit `c4eb0426f` (`v1.27.0-28`). The first deployed
+personal build used `1d530d764` (`v1.26.0-512`), matching the original installation.
 
 This patch follows the main-thread cache approach proposed by
 [xx2689 in PR #10327](https://github.com/deskflow/deskflow/pull/10327).
@@ -18,6 +19,8 @@ is queued to the main thread and publishes fresh state before acknowledging.
 An unprocessed request times out and is cancelled so shutdown cannot wait forever
 for a main thread that has stopped processing events. This timeout cannot interrupt
 a native API call that has already started executing.
+The singleton intentionally lives until process termination: fatal core paths can
+call `exit()` from a worker while the main thread is still using the cache.
 
 The existing ASCII-layout fallback and post-selection delay are preserved.
 Input-source IDs are compared by string value instead of CF object addresses.
@@ -42,8 +45,10 @@ cmake --install build --prefix "$PWD/dist"
 
 Packaging explicitly deploys Qt frameworks for the embedded `deskflow-core` as
 well as the GUI and supplies the QtSvg library directory for split Homebrew Qt
-installations. QtSvg is copied from its resolved framework directory before
-deployment because macdeployqt can overlook plugin-only dependencies.
+installations. Framework builds copy QtSvg from its resolved framework directory
+before deployment because macdeployqt can overlook plugin-only dependencies.
+QtSvg is optional, and dylib/static Qt targets never trigger framework-directory
+copying. `MacDeployTests` validates all four layouts using isolated CMake fixtures.
 Verify the finished bundle with `codesign --verify --deep --strict`
 and check both executables for remaining Homebrew library dependencies before
 installing it.
@@ -53,11 +58,18 @@ cannot match Team IDs between ad-hoc executables and bundled frameworks.
 
 The excluded native tests inject real keyboard events or modify the clipboard.
 The new `OSXInputSourceTests` creates keyboard events in memory without posting
-them. Its test-only interposer supplies two synthetic input sources and audits
-all six TIS entry points used by production. It verifies that the audit detects
+them. Its test-only interposer supplies two synthetic input sources with different
+documented `uchr` resources ('a' versus 'q' for the same virtual key), and audits
+all six TIS entry points used by production. It captures notification registration
+and invokes those callbacks on the main and worker threads without broadcasting
+system notifications. It verifies that the audit detects
 an intentionally unsafe background call, immutable snapshots survive refreshes,
 workers never call TIS during repeated updates, selection publishes its result,
-and cancelled requests do not execute later. It does not change the user's actual
+and cancelled requests do not execute later. Selection explicitly starts at the
+other source, and the test fails if post-selection publication is removed.
+Notification-driven source changes, enabled-source changes and the IME ASCII
+fallback are covered. These are simulated notifications; real rapid input-source
+switching still needs day-to-day validation. Tests do not change the user's actual
 input source.
 
 ## Scope and rollback
@@ -73,6 +85,14 @@ To roll back, quit Deskflow, restore the saved application at the same path, and
 reopen it. A local ad-hoc signature can require regranting macOS Accessibility
 permission for both the application and `deskflow-core`.
 
-Keep new fixes in separate commits. Review upstream changes before rebasing;
-this branch intentionally stays on the installed baseline. No upstream PR,
+Keep new fixes in separate commits. Review upstream changes before rebasing and
+pin the upstream revision that has passed validation. No upstream PR,
 issue or comment is created by this workflow.
+
+## Windows deployment follow-up
+
+Windows deployment is still required after these review fixes. Use the same
+reviewed source commit on both machines, preserve the Windows application and
+configuration/TLS material before replacing it, and verify the Windows client
+reconnects to the Mac server. Resolve the destination through the connected Paseo
+host registry; machine-specific connection details belong in local deployment notes.

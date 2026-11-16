@@ -40,6 +40,12 @@ build/src/unittests/platform/OSXKeyStateTests mapModifiersFromOSX_OSXMask
 cmake --install build --prefix "$PWD/dist"
 ```
 
+Packaging explicitly deploys Qt frameworks for the embedded `deskflow-core` as
+well as the GUI and supplies the QtSvg library directory for split Homebrew Qt
+installations. Verify the finished bundle with `codesign --verify --deep --strict`
+and check both executables for remaining Homebrew library dependencies before
+installing it.
+
 The excluded native tests inject real keyboard events or modify the clipboard.
 The new `OSXInputSourceTests` creates keyboard events in memory without posting
 them. Its test-only interposer supplies two synthetic input sources and audits

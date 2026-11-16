@@ -12,6 +12,7 @@
 #include "client/ServerProxy.h"
 #include "deskflow/AppUtil.h"
 #include "deskflow/ProtocolTypes.h"
+#include "deskflow/ProtocolUtil.h"
 #include "io/IStream.h"
 
 #include <QTest>
@@ -23,6 +24,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -79,8 +81,14 @@ public:
     return static_cast<uint32_t>(bytesToRead);
   }
 
-  void write(const void *, uint32_t) override
+  void write(const void *buffer, uint32_t size) override
   {
+    m_written.append(static_cast<const char *>(buffer), size);
+  }
+
+  std::string takeWritten()
+  {
+    return std::exchange(m_written, {});
   }
 
   void flush() override
@@ -117,6 +125,7 @@ public:
 
 private:
   std::deque<std::string> m_chunks;
+  std::string m_written;
   bool m_inputShutdown = false;
 };
 
@@ -166,9 +175,16 @@ public:
     return timer();
   }
 
-  EventQueueTimer *newOneShotTimer(double, void *) override
+  EventQueueTimer *newOneShotTimer(double duration, void *) override
   {
+    m_deadline = m_now + duration;
     return timer();
+  }
+
+  bool advance(double seconds)
+  {
+    m_now += seconds;
+    return m_now >= m_deadline && dispatchEvent(Event(EventTypes::Timer, timer()));
   }
 
   void deleteTimer(EventQueueTimer *) override
@@ -231,6 +247,8 @@ private:
   };
 
   int m_timerStorage = 0;
+  double m_now = 0.0;
+  double m_deadline = 0.0;
   std::map<HandlerKey, EventHandler> m_handlers;
   std::vector<Event> m_addedEvents;
 };
@@ -245,6 +263,37 @@ public:
     return parseHandshakeMessage(code) == ConnectionResult::Disconnect;
   }
 };
+
+// Exercise the transport's liveness handling with real clipboard chunk parsing,
+// without publishing anything to the system clipboard or needing a real Client.
+class ClipboardServerProxy : public ServerProxy
+{
+public:
+  using ServerProxy::ServerProxy;
+
+protected:
+  ConnectionResult parseHandshakeMessage(const uint8_t *code) override
+  {
+    if (memcmp(code, kMsgDClipboard, 4) != 0) {
+      return ServerProxy::parseHandshakeMessage(code);
+    }
+    ClipboardID id;
+    uint32_t sequence;
+    const auto result = ClipboardChunk::assemble(getStream(), m_data, id, sequence, m_state, 4 * 1024 * 1024);
+    return result == TransferState::Error ? ConnectionResult::Disconnect : ConnectionResult::Okay;
+  }
+
+private:
+  std::string m_data;
+  ClipboardChunkAssemblyState m_state;
+};
+
+void deliverClipboardChunk(RecordingEventQueue &events, FakeStream &stream, uint8_t type, const std::string &data)
+{
+  ProtocolUtil::writef(&stream, kMsgDClipboard, uint32_t{0}, uint32_t{0}, uint32_t{type}, &data);
+  stream.push(stream.takeWritten());
+  QVERIFY(events.dispatchEvent(Event(EventTypes::StreamInputReady, stream.getEventTarget())));
+}
 
 Client *undereferenceableClient()
 {
@@ -326,6 +375,40 @@ void ServerProxyTests::parseHandshakeMessage_protocolError_queuesRefusalRequest(
   QVERIFY(request->kind() == Client::DisconnectRequest::Kind::Refuse);
   QVERIFY(request->refusalReason() == deskflow::core::ConnectionRefusal::ProtocolError);
   QCOMPARE(QString::fromUtf8(request->message()), QStringLiteral("server reported a protocol error"));
+}
+
+void ServerProxyTests::clipboardProgress_preventsFalseKeepAliveTimeout()
+{
+  RecordingEventQueue events;
+  FakeStream stream;
+  ClipboardServerProxy proxy(undereferenceableClient(), &stream, &events);
+  const std::string chunk(512 * 1024, 'x');
+
+  deliverClipboardChunk(events, stream, ChunkType::DataStart, std::to_string(chunk.size() * 3));
+  for (int i = 0; i < 3; ++i) {
+    // A slow but active transfer lasts 24 seconds without a separate CALV.
+    QVERIFY(!events.advance(8.0));
+    deliverClipboardChunk(events, stream, ChunkType::DataChunk, chunk);
+    QVERIFY(events.addedEvents().empty());
+  }
+  deliverClipboardChunk(events, stream, ChunkType::DataEnd, {});
+  QVERIFY(!events.advance(8.0));
+  QVERIFY(events.addedEvents().empty());
+
+  // Stopping all traffic still expires the normal nine-second deadline.
+  QVERIFY(events.advance(2.0));
+  QVERIFY(disconnectRequest(events) != nullptr);
+}
+
+void ServerProxyTests::clipboardInvalidChunk_doesNotRefreshKeepAlive()
+{
+  RecordingEventQueue events;
+  FakeStream stream;
+  ClipboardServerProxy proxy(undereferenceableClient(), &stream, &events);
+  QVERIFY(!events.advance(8.0));
+  deliverClipboardChunk(events, stream, ChunkType::DataChunk, "data before start");
+  QVERIFY(events.advance(2.0));
+  QVERIFY(disconnectRequest(events) != nullptr);
 }
 
 QTEST_MAIN(ServerProxyTests)

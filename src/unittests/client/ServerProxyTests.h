@@ -19,6 +19,8 @@ private Q_SLOTS:
   void handleKeepAliveAlarm_timeout_queuesDisconnectRequest();
   void handleData_incompleteMessage_queuesDisconnectRequest();
   void parseHandshakeMessage_protocolError_queuesRefusalRequest();
+  void clipboardProgress_preventsFalseKeepAliveTimeout();
+  void clipboardInvalidChunk_doesNotRefreshKeepAlive();
 
 private:
   Log m_log;

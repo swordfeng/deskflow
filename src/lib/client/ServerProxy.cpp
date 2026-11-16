@@ -95,6 +95,11 @@ void ServerProxy::handleData()
       switch ((this->*m_parser)(code)) {
         using enum ConnectionResult;
       case Okay:
+        // A large clipboard transfer can queue heartbeats behind its data.
+        // Valid chunk progress still proves that the server is responding.
+        if (memcmp(code, kMsgDClipboard, 4) == 0) {
+          resetKeepAliveAlarm();
+        }
         break;
 
       case Unknown:

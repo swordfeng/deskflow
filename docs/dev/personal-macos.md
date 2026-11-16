@@ -89,13 +89,34 @@ Keep new fixes in separate commits. Review upstream changes before rebasing and
 pin the upstream revision that has passed validation. No upstream PR,
 issue or comment is created by this workflow.
 
-## Windows deployment follow-up
+## Windows deployment
 
-Windows deployment is still required after these review fixes. Use the same
-reviewed source commit on both machines, preserve the Windows application and
-configuration/TLS material before replacing it, and verify the Windows client
-reconnects to the Mac server. Resolve the destination through the connected Paseo
-host registry; machine-specific connection details belong in local deployment notes.
+Windows deployment completed on 2026-11-16 from commit `f5872be93`: GUI, core and
+daemon are version **1.27.0.39**. The Mac remains on **1.27.0.37** (`4c0e6138f`);
+the subsequent production changes affect only Windows. The Windows client
+reconnected to the Mac server over TLS after the installed directory was replaced
+and its existing automatic LocalSystem service restarted. TLS identity/trust files
+were verified unchanged. Preserve the application, user/system configuration and
+TLS material before future replacements. Machine-specific connection details,
+backup locations, package checksums and process IDs belong in ignored deployment
+records, not this document.
+
+The full Windows build used MSVC 19.44, Qt 6.12.0 and OpenSSL 3.6.5 (vcpkg commit
+`8f363bdc11359ede4bc51e5eb32a2617538049c8`). Use the aqt installer revision pinned
+in CI for Qt's newer repository layout. The SDK must include qtdeclarative as well
+as qtbase, qttools, qtsvg and qttranslations: `lupdate.exe` depends on `Qt6Qml.dll`.
+Build with `BUILD_TESTS=ON`, `SKIP_BUILD_TESTS=ON` and
+`CMAKE_COMPILE_WARNING_AS_ERROR=ON`. All **29** non-invasive Windows CTest targets
+passed; only `MSWindowsClipboardTests`, which changes the live clipboard, was
+excluded. The installed staging directory ran `deskflow-core --version` with SDK
+paths removed from PATH. All 21 staged PE files had their DLL dependencies
+available, and all 68 staged files were hashed and verified during replacement.
+
+The first full test run also exposed an existing Windows socket-option bug.
+The native Winsock probe returned a one-byte `TCP_NODELAY` value, leaving the
+remaining bytes of its BOOL buffer untouched. Initializing that buffer fixes the
+uninitialized read and makes the existing return-previous-value test pass.
+This is isolated in commit `f5872be93`.
 
 ### Windows clipboard bitmap safety
 
@@ -125,8 +146,9 @@ truncation; the truncation test explicitly preserves that compatibility exceptio
 
 Validation on Windows used Clang 22.1.7, the real Windows SDK/GDI and
 AddressSanitizer, compiling the production converter and test source in an
-isolated harness. Only the Qt-dependent logger was replaced with a no-op shim;
-the full Qt Windows application still needs its normal build and deployment.
+isolated harness. Only the Qt-dependent logger was replaced with a no-op shim.
+The subsequent complete Qt Windows build and deployment are recorded above;
+the bitmap test also passed there using the real logger.
 All nine cases passed without sanitizer reports. Restoring the erroneous V4/V5
 12-byte pixel offset made the pixel-color and large-image cases fail; restoring
 the fix passed all nine again. Mac build and 30 non-invasive tests also passed.

@@ -91,9 +91,10 @@ issue or comment is created by this workflow.
 
 ## Windows deployment
 
-Windows deployment completed on 2026-11-16 from commit `f5872be93`: GUI, core and
-daemon are version **1.27.0.39**. The Mac remains on **1.27.0.37** (`4c0e6138f`);
-the subsequent production changes affect only Windows. The Windows client
+The initial Windows deployment completed on 2026-11-16 from commit `f5872be93`
+(**1.27.0.39**). A subsequent deployment installed `a532a29f2`
+(**1.27.0.41**) in the GUI, core and daemon. The Mac remains on **1.27.0.37**
+(`4c0e6138f`). The Windows client
 reconnected to the Mac server over TLS after the installed directory was replaced
 and its existing automatic LocalSystem service restarted. TLS identity/trust files
 were verified unchanged. Preserve the application, user/system configuration and
@@ -154,3 +155,47 @@ All nine cases passed without sanitizer reports. Restoring the erroneous V4/V5
 the fix passed all nine again. Mac build and 30 non-invasive tests also passed.
 These results establish the converter defect and its regression coverage, not
 the cause of any specific historical client crash without a matching stack.
+
+### Large-clipboard disconnect investigation
+
+Live large-image copying still disconnected Windows on **1.27.0.41**. Both core
+processes survived, and no new Windows application-crash event was recorded.
+Twice the client logged `clipboard was updated`, then `server is dead` 9 seconds
+later and reconnected. Refreshing the watchdog on valid DCLP progress fixes a
+separate slow-transfer timeout, but did not resolve this incident. Windows was
+shut down before native stacks could be retrieved; the live defect remains open.
+
+A local loopback regression subsequently reproduced a concrete TLS receive bug.
+`SecureSocket::doRead()` yielded after its input buffer exceeded 1 MiB even when
+OpenSSL still held decrypted plaintext. That plaintext produces no native socket
+readiness. At selected wire boundaries this stranded either the final clipboard
+chunk or a CALV immediately after a fully assembled clipboard. The receive loop
+now drains buffered plaintext from the current TLS record before yielding. It
+still yields before reading another record once the size threshold is exceeded;
+the change does not remove the per-pass fairness limit or extend timeouts. It uses
+`SSL_pending()` for the demonstrated plaintext case; the current SSL context has
+read-ahead disabled. A future read-ahead/pipelining policy needs its own handling
+of buffered raw records and WANT results.
+
+`ClipboardTransportTests` uses real loopback TCP/TLS, the socket multiplexer,
+packet framing, clipboard chunk assembly and reverse no-op/heartbeat traffic.
+It gates socket polling while queuing a transfer to exercise coalesced writes,
+pauses the consumer briefly, and requires delivery without an additional network
+record. Rows cover 28/48 MiB payloads, two capped-read boundaries and a completed
+clipboard whose following heartbeat was previously stranded. One row uses the
+production server proxy and its normal 3-second heartbeat timer. Data, settings,
+certificates and trust files are isolated; no native clipboard or input hooks are
+used. On Windows its executable has a separate output directory, so the temporary
+portable marker cannot affect sibling test binaries. The test creates that marker
+with exclusive creation and skips if it already exists, avoiding the installed
+system TLS path.
+
+The original capped-read condition fails the three boundary rows; draining
+OpenSSL plaintext passes them. The strict Mac build and all 31 non-invasive
+CTest targets pass. Claude and Codex reviewed the candidate and agreed that the
+demonstrated defect is ready to commit; the narrower plaintext check is retained.
+A fresh network record can wake the old receive
+loop in the local reproducer, so this alone does not prove the persistent Windows
+failure has been fixed. Native Windows transport tests and the original live
+large-image reproduction are still required after that host returns. Do not mark
+the candidate deployed or the incident resolved based on the Mac tests.

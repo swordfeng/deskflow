@@ -142,7 +142,11 @@ TCPSocket::JobResult SecureSocket::doRead()
     do {
       m_inputBuffer.write(buffer, bytesRead);
 
-      if (m_inputBuffer.getSize() > s_maxInputBufferSize) {
+      // Native socket readiness cannot wake us for plaintext already buffered
+      // inside OpenSSL. Finish the current TLS record before yielding, otherwise
+      // the tail can stall until the peer sends another record. With read-ahead
+      // disabled, draining pending plaintext keeps the extra work record-sized.
+      if (m_inputBuffer.getSize() > s_maxInputBufferSize && !hasPendingRead()) {
         break;
       }
 
@@ -170,6 +174,12 @@ TCPSocket::JobResult SecureSocket::doRead()
   }
 
   return Retry;
+}
+
+bool SecureSocket::hasPendingRead()
+{
+  std::scoped_lock ssl_lock{ssl_mutex_};
+  return m_ssl && m_ssl->m_ssl && SSL_pending(m_ssl->m_ssl) > 0;
 }
 
 TCPSocket::JobResult SecureSocket::doWrite()

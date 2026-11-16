@@ -42,7 +42,9 @@ cmake --install build --prefix "$PWD/dist"
 
 Packaging explicitly deploys Qt frameworks for the embedded `deskflow-core` as
 well as the GUI and supplies the QtSvg library directory for split Homebrew Qt
-installations. Verify the finished bundle with `codesign --verify --deep --strict`
+installations. QtSvg is copied from its resolved framework directory before
+deployment because macdeployqt can overlook plugin-only dependencies.
+Verify the finished bundle with `codesign --verify --deep --strict`
 and check both executables for remaining Homebrew library dependencies before
 installing it.
 Local builds without a signing certificate use ordinary ad-hoc signing. Hardened

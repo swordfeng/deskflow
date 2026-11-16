@@ -13,6 +13,17 @@ if (OSX_BUNDLE)
   find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED COMPONENTS Svg)
   file(REAL_PATH "${Qt6Svg_DIR}" _qt_svg_cmake_dir)
   get_filename_component(_qt_svg_lib_dir "${_qt_svg_cmake_dir}/../.." ABSOLUTE)
+  # macdeployqt does not consistently use -libpath while resolving plugin-only
+  # dependencies. Seed the framework and process its dependencies explicitly.
+  get_target_property(_qt_svg_binary Qt6::Svg LOCATION)
+  get_filename_component(_qt_svg_version_dir "${_qt_svg_binary}" DIRECTORY)
+  get_filename_component(_qt_svg_framework_dir "${_qt_svg_version_dir}/../.." ABSOLUTE)
+  file(REAL_PATH "${_qt_svg_framework_dir}" _qt_svg_framework_dir)
+  install(DIRECTORY "${_qt_svg_framework_dir}"
+    DESTINATION "${CMAKE_PROJECT_PROPER_NAME}.app/Contents/Frameworks"
+    PATTERN "Headers" EXCLUDE
+    PATTERN "*.prl" EXCLUDE
+  )
   set(_codesign_identity "-")
   set(_codesign_options "")
   if (APPLE_CODESIGN_DEV)
@@ -23,6 +34,7 @@ if (OSX_BUNDLE)
     ${DEPLOYQT}
     \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app\"
     \"-executable=\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app/Contents/MacOS/deskflow-core\"
+    \"-executable=\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app/Contents/Frameworks/QtSvg.framework/Versions/A/QtSvg\"
     \"-libpath=${_qt_svg_lib_dir}\"
     ${_codesign_options} \"-codesign=${_codesign_identity}\"
   )")

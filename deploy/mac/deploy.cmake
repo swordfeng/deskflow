@@ -9,6 +9,9 @@ set(OSX_BUNDLE ${BUILD_OSX_BUNDLE})
 set(OS_STRING "macos-${BUILD_ARCHITECTURE}")
 
 if (OSX_BUNDLE)
+  # Homebrew installs QtSvg separately; plugins may refer to it through @rpath.
+  find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED COMPONENTS Svg)
+  get_filename_component(_qt_svg_lib_dir "${Qt6Svg_DIR}/../.." ABSOLUTE)
   set(_codesign_identity "-")
   if (APPLE_CODESIGN_DEV)
     set(_codesign_identity "${APPLE_CODESIGN_DEV}")
@@ -16,6 +19,8 @@ if (OSX_BUNDLE)
   install(CODE "execute_process(COMMAND
     ${DEPLOYQT}
     \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app\"
+    \"-executable=\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app/Contents/MacOS/deskflow-core\"
+    \"-libpath=${_qt_svg_lib_dir}\"
     -hardened-runtime -timestamp \"-codesign=${_codesign_identity}\"
   )")
   set(CPACK_PACKAGE_ICON "${MY_DIR}/dmg-volume.icns")

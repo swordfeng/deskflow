@@ -60,8 +60,11 @@ std::string language(TISInputSourceRef source)
 
 OSXInputSources &OSXInputSources::instance()
 {
-  static OSXInputSources sources;
-  return sources;
+  // Some fatal core paths call exit() from a worker while the main thread is
+  // still processing notifications. Keep the cache and observer alive until
+  // process termination rather than destroying them concurrently with readers.
+  static auto *sources = new OSXInputSources;
+  return *sources;
 }
 
 OSXInputSources::OSXInputSources()
@@ -73,11 +76,6 @@ OSXInputSources::OSXInputSources()
         center, this, notification, name, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately
     );
   refresh();
-}
-
-OSXInputSources::~OSXInputSources()
-{
-  CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDistributedCenter(), this);
 }
 
 void OSXInputSources::notification(CFNotificationCenterRef, void *observer, CFStringRef, const void *, CFDictionaryRef)

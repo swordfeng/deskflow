@@ -40,7 +40,7 @@ public:
 
 private:
   OSXInputSources();
-  ~OSXInputSources();
+  ~OSXInputSources() = default;
   bool selectOnMainThread(const std::string &id);
   static void notification(CFNotificationCenterRef, void *, CFStringRef, const void *, CFDictionaryRef);
 

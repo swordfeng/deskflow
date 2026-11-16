@@ -10,6 +10,10 @@ if (WIN32)
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
   )
 elseif(APPLE)
+  add_test(NAME MacDeployTests COMMAND ${CMAKE_COMMAND}
+    -DREPO_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+    -DTEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/mac-deploy-fixtures
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/MacDeployTests.cmake)
   add_library(OSXInputSourceAudit SHARED OSXInputSourceAudit.cpp)
   target_link_libraries(OSXInputSourceAudit PRIVATE ${lib_Carbon})
   create_test(

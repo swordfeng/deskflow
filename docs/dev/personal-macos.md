@@ -45,6 +45,9 @@ well as the GUI and supplies the QtSvg library directory for split Homebrew Qt
 installations. Verify the finished bundle with `codesign --verify --deep --strict`
 and check both executables for remaining Homebrew library dependencies before
 installing it.
+Local builds without a signing certificate use ordinary ad-hoc signing. Hardened
+runtime signing is enabled only with `APPLE_CODESIGN_DEV`: its library validation
+cannot match Team IDs between ad-hoc executables and bundled frameworks.
 
 The excluded native tests inject real keyboard events or modify the clipboard.
 The new `OSXInputSourceTests` creates keyboard events in memory without posting

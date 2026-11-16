@@ -13,15 +13,17 @@ if (OSX_BUNDLE)
   find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED COMPONENTS Svg)
   get_filename_component(_qt_svg_lib_dir "${Qt6Svg_DIR}/../.." ABSOLUTE)
   set(_codesign_identity "-")
+  set(_codesign_options "")
   if (APPLE_CODESIGN_DEV)
     set(_codesign_identity "${APPLE_CODESIGN_DEV}")
+    set(_codesign_options "-hardened-runtime -timestamp")
   endif()
   install(CODE "execute_process(COMMAND
     ${DEPLOYQT}
     \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app\"
     \"-executable=\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app/Contents/MacOS/deskflow-core\"
     \"-libpath=${_qt_svg_lib_dir}\"
-    -hardened-runtime -timestamp \"-codesign=${_codesign_identity}\"
+    ${_codesign_options} \"-codesign=${_codesign_identity}\"
   )")
   set(CPACK_PACKAGE_ICON "${MY_DIR}/dmg-volume.icns")
   set(CPACK_DMG_BACKGROUND_IMAGE "${MY_DIR}/dmg-background.tiff")

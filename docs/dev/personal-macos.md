@@ -96,3 +96,39 @@ reviewed source commit on both machines, preserve the Windows application and
 configuration/TLS material before replacing it, and verify the Windows client
 reconnects to the Mac server. Resolve the destination through the connected Paseo
 host registry; machine-specific connection details belong in local deployment notes.
+
+### Windows clipboard bitmap safety
+
+The Windows bitmap converter now validates incoming wire DIBs before publishing
+them, and native HGLOBAL DIBs before reading their pixels or passing them to GDI.
+INFOHEADER bitfield masks are external; V4/V5 masks are embedded and must not
+advance the pixel pointer a second time. Validation covers header lengths,
+planes/depth/compression, signed dimensions, padded scanlines, palette and mask
+ranges, declared image sizes, packed V5 profile ranges, and 32-bit wire/output
+size limits. HGLOBAL sizes retain SIZE_T precision. Locks and GDI resources are
+released on every return and on C++ allocation exceptions; failed GDI conversions
+return no image. The existing repair for an INFOHEADER-sized Mac payload that
+incorrectly declares a V5 header remains supported.
+
+This path supports uncompressed RGB and bitfield DIBs. Unsupported headers and
+RLE/JPEG/PNG-compressed DIBs are rejected with a warning; PNG transport is a
+separate change and is not added by this patch.
+
+`MSWindowsClipboardBitmapTests` is a separate Windows test target that never
+opens or changes the system clipboard. Its nine cases cover actual pixel colors
+for INFO/V4/V5 bitfields in both orientations, healthy/legacy Mac publication,
+24/32-bit RGB padding, truncated headers/masks/palettes/pixels, invalid dimensions
+and metadata, V5 profile bounds, indexed/16-bit conversion, a 4096x2160 image,
+and repeated conversion without GDI object leaks. The legacy repair cannot
+distinguish its historical 40-byte-header payload from an identically sized V5
+truncation; the truncation test explicitly preserves that compatibility exception.
+
+Validation on Windows used Clang 22.1.7, the real Windows SDK/GDI and
+AddressSanitizer, compiling the production converter and test source in an
+isolated harness. Only the Qt-dependent logger was replaced with a no-op shim;
+the full Qt Windows application still needs its normal build and deployment.
+All nine cases passed without sanitizer reports. Restoring the erroneous V4/V5
+12-byte pixel offset made the pixel-color and large-image cases fail; restoring
+the fix passed all nine again. Mac build and 30 non-invasive tests also passed.
+These results establish the converter defect and its regression coverage, not
+the cause of any specific historical client crash without a matching stack.

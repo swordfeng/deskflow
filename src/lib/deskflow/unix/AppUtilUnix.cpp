@@ -16,12 +16,14 @@
 #include <deskflow/unix/XkbLayoutsParser.h>
 #elif defined(Q_OS_MACOS)
 #include <Carbon/Carbon.h>
-#include <platform/OSXAutoTypes.h>
+#include <platform/OSXInputSources.h>
 #endif
 
 AppUtilUnix::AppUtilUnix(const IEventQueue *)
 {
-  // do nothing
+#if defined(Q_OS_MACOS)
+  OSXInputSources::instance();
+#endif
 }
 
 int startStatic()
@@ -42,41 +44,7 @@ std::vector<std::string> AppUtilUnix::getKeyboardLayoutList()
   layoutLangCodes = XkbLayoutsParser::getXkbLanguageList();
 
 #elif defined(Q_OS_MACOS)
-  CFStringRef keys[] = {kTISPropertyInputSourceCategory};
-  CFStringRef values[] = {kTISCategoryKeyboardInputSource};
-  AutoCFDictionary dict(
-      CFDictionaryCreate(nullptr, (const void **)keys, (const void **)values, 1, nullptr, nullptr), CFRelease
-  );
-  AutoCFArray kbds(nullptr, CFRelease);
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    kbds = AutoCFArray(TISCreateInputSourceList(dict.get(), false), CFRelease);
-  }
-
-  for (CFIndex i = 0; i < CFArrayGetCount(kbds.get()); ++i) {
-    TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(kbds.get(), i);
-    CFArrayRef layoutLanguages = nullptr;
-    {
-      std::lock_guard<std::mutex> lock(g_tisMutex);
-      layoutLanguages = (CFArrayRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceLanguages);
-    }
-    char temporaryCString[128] = {0};
-    for (CFIndex index = 0; layoutLanguages && index < CFArrayGetCount(layoutLanguages); index++) {
-      auto languageCode = (CFStringRef)CFArrayGetValueAtIndex(layoutLanguages, index);
-      if (!languageCode || !CFStringGetCString(languageCode, temporaryCString, 128, kCFStringEncodingUTF8)) {
-        continue;
-      }
-
-      std::string langCode(temporaryCString);
-      if (langCode.size() == 2 &&
-          std::find(layoutLangCodes.begin(), layoutLangCodes.end(), langCode) == layoutLangCodes.end()) {
-        layoutLangCodes.push_back(langCode);
-      }
-
-      // Save only first language code
-      break;
-    }
-  }
+  layoutLangCodes = OSXInputSources::instance().snapshot()->languages;
 #endif
 
   return layoutLangCodes;
@@ -138,24 +106,7 @@ std::string AppUtilUnix::getCurrentLanguageCode()
   result = XkbLayoutsParser::convertLayoutToISO(result);
 
 #elif defined(Q_OS_MACOS)
-  AutoTISInputSourceRef source(nullptr, CFRelease);
-  CFArrayRef layoutLanguages = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    source = AutoTISInputSourceRef(TISCopyCurrentKeyboardInputSource(), CFRelease);
-    if (source)
-      layoutLanguages = (CFArrayRef)TISGetInputSourceProperty(source.get(), kTISPropertyInputSourceLanguages);
-  }
-  char temporaryCString[128] = {0};
-  for (CFIndex index = 0; layoutLanguages && index < CFArrayGetCount(layoutLanguages); index++) {
-    auto languageCode = (CFStringRef)CFArrayGetValueAtIndex(layoutLanguages, index);
-    if (!languageCode || !CFStringGetCString(languageCode, temporaryCString, 128, kCFStringEncodingUTF8)) {
-      continue;
-    }
-
-    result = std::string(temporaryCString);
-    break;
-  }
+  result = OSXInputSources::instance().snapshot()->language;
 #endif
   return result;
 }

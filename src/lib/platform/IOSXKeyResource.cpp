@@ -1,12 +1,13 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2016 Synergy App Ltd
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "platform/IOSXKeyResource.h"
 
-#include "platform/OSXAutoTypes.h"
+#include "platform/OSXInputSources.h"
 #include <Carbon/Carbon.h>
 
 KeyID IOSXKeyResource::getKeyID(uint8_t c)
@@ -102,15 +103,14 @@ KeyID IOSXKeyResource::getKeyID(uint8_t c)
     str[1] = 0;
 
     // get current keyboard script
-    AutoTISInputSourceRef isref(nullptr, CFRelease);
-    CFArrayRef langs = nullptr;
-    {
-      std::lock_guard<std::mutex> lock(g_tisMutex);
-      isref = AutoTISInputSourceRef(TISCopyCurrentKeyboardInputSource(), CFRelease);
-      if (isref)
-        langs = (CFArrayRef)TISGetInputSourceProperty(isref.get(), kTISPropertyInputSourceLanguages);
-    }
-    CFStringEncoding encoding = CFStringConvertIANACharSetNameToEncoding((CFStringRef)CFArrayGetValueAtIndex(langs, 0));
+    const auto sources = OSXInputSources::instance().snapshot();
+    auto language = CFStringCreateWithCString(nullptr, sources->language.c_str(), kCFStringEncodingUTF8);
+    if (!language)
+      return kKeyNone;
+    const auto encoding = CFStringConvertIANACharSetNameToEncoding(language);
+    CFRelease(language);
+    if (encoding == kCFStringEncodingInvalidId)
+      return kKeyNone;
     // convert to unicode
     CFStringRef cfString = CFStringCreateWithCStringNoCopy(kCFAllocatorDefault, str, encoding, kCFAllocatorNull);
 

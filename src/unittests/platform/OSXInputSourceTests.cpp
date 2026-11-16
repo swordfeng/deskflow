@@ -23,6 +23,9 @@ extern "C" int deskflowBackgroundInputSourceCalls();
 extern "C" void deskflowResetBackgroundInputSourceCalls();
 extern "C" int deskflowInputSourceSelections();
 extern "C" void deskflowSetAuditInputSource(int);
+extern "C" void deskflowSetAuditSecondEnabled(bool);
+extern "C" void deskflowSetAuditInputMethod(bool);
+extern "C" int deskflowSendAuditNotification(bool);
 
 class OSXInputSourceTests : public QObject
 {
@@ -64,6 +67,87 @@ private Q_SLOTS:
     worker.join();
     QCOMPARE(deskflowBackgroundInputSourceCalls(), 1);
     deskflowResetBackgroundInputSourceCalls();
+  }
+
+  void selectedNotificationChangesTranslation_data()
+  {
+    QTest::addColumn<bool>("workerNotification");
+    QTest::newRow("main-thread-notification") << false;
+    QTest::newRow("worker-thread-notification") << true;
+  }
+
+  void selectedNotificationChangesTranslation()
+  {
+    QFETCH(bool, workerNotification);
+    auto &sources = OSXInputSources::instance();
+    deskflowSetAuditInputSource(0);
+    sources.refresh();
+    EventQueue events;
+    deskflow::KeyMap keyMap;
+    OSXKeyState keys(&events, keyMap, {"en", "fr"}, true);
+    auto character = [&] {
+      auto event = CGEventCreateKeyboardEvent(nullptr, kVK_ANSI_A, true);
+      CGEventSetFlags(event, 0);
+      OSXKeyState::KeyIDs ids;
+      KeyModifierMask mask{};
+      keys.mapKeyFromEvent(ids, &mask, event);
+      CFRelease(event);
+      return ids.size() == 1 ? ids.front() : kKeyNone;
+    };
+    QCOMPARE(character(), KeyID('a'));
+    deskflowSetAuditInputSource(1);
+    int delivered = 0;
+    if (workerNotification) {
+      std::thread worker([&] { delivered = deskflowSendAuditNotification(false); });
+      worker.join();
+    } else {
+      delivered = deskflowSendAuditNotification(false);
+    }
+    QCOMPARE(delivered, 1);
+    QTRY_COMPARE_WITH_TIMEOUT(sources.snapshot()->activeLayout, std::string("deskflow.test.b"), 1000);
+    QCOMPARE(sources.snapshot()->language, std::string("fr"));
+    QCOMPARE(character(), KeyID('q'));
+    QCOMPARE(deskflowBackgroundInputSourceCalls(), 0);
+  }
+
+  void enabledNotificationRefreshesSourceList()
+  {
+    auto &sources = OSXInputSources::instance();
+    deskflowSetAuditInputSource(0);
+    sources.refresh();
+    QCOMPARE(sources.snapshot()->layouts.size(), size_t(2));
+    deskflowSetAuditSecondEnabled(false);
+    const int delivered = deskflowSendAuditNotification(true);
+    const auto disabled = sources.snapshot();
+    deskflowSetAuditSecondEnabled(true);
+    deskflowSendAuditNotification(true);
+    QCOMPARE(delivered, 1);
+    QCOMPARE(disabled->layouts.size(), size_t(1));
+    QCOMPARE(disabled->languages, std::vector<std::string>({"en"}));
+    QCOMPARE(sources.snapshot()->layouts.size(), size_t(2));
+  }
+
+  void inputMethodUsesAsciiFallback()
+  {
+    auto &sources = OSXInputSources::instance();
+    deskflowSetAuditInputSource(1);
+    deskflowSetAuditInputMethod(true);
+    sources.refresh();
+    auto snapshot = sources.snapshot();
+    UInt32 state = 0;
+    UniChar character = 0;
+    UniCharCount count = 0;
+    const auto status = UCKeyTranslate(
+        reinterpret_cast<const UCKeyboardLayout *>(snapshot->translationData.constData()), kVK_ANSI_A, kUCKeyActionDown,
+        0, 0, 0, &state, 1, &count, &character
+    );
+    deskflowSetAuditInputMethod(false);
+    deskflowSetAuditInputSource(0);
+    sources.refresh();
+    QCOMPARE(snapshot->activeLayout, std::string("deskflow.test.b"));
+    QCOMPARE(status, noErr);
+    QCOMPARE(count, UniCharCount(1));
+    QCOMPARE(character, UniChar('a'));
   }
 
   void workerReadsDuringRefresh_data()
@@ -120,12 +204,19 @@ private Q_SLOTS:
 
   void workerSelectionPublishesBeforeReturning()
   {
+    deskflowSetAuditInputSource(0);
+    OSXInputSources::instance().refresh();
+    QCOMPARE(OSXInputSources::instance().snapshot()->activeLayout, std::string("deskflow.test.a"));
+    const int before = deskflowInputSourceSelections();
     std::atomic<bool> done{false};
     bool result = false;
     std::string language;
+    std::string activeLayout;
     auto worker = std::thread([&] {
       result = OSXInputSources::instance().select("deskflow.test.b");
-      language = OSXInputSources::instance().snapshot()->language;
+      const auto snapshot = OSXInputSources::instance().snapshot();
+      language = snapshot->language;
+      activeLayout = snapshot->activeLayout;
       done = true;
     });
     QElapsedTimer elapsed;
@@ -137,6 +228,8 @@ private Q_SLOTS:
     worker.join();
     QVERIFY(result);
     QCOMPARE(language, std::string("fr"));
+    QCOMPARE(activeLayout, std::string("deskflow.test.b"));
+    QCOMPARE(deskflowInputSourceSelections(), before + 1);
     QCOMPARE(deskflowBackgroundInputSourceCalls(), 0);
   }
 

@@ -56,6 +56,12 @@ should list only `deskflow-core`; the keychain identifies it by its designated r
 (identifier plus signing certificate), so the grant survives updates signed with the same
 identity, and other programs get a prompt (to be denied) or nothing.
 
+## Separate private key file
+
+With `security/privateKeyFile=<path>` (any platform) the certificate file holds only the
+certificate and the key is read from that file, so the key can be restricted to the core (on
+Windows: SYSTEM and Administrators) while the GUI still reads the certificate for the fingerprint.
+
 ## Tests
 
 `IpcPeerPolicyTests`, `ManagedSettingsTests` (trust rules for POSIX and Windows owners/ACLs,

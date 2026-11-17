@@ -346,6 +346,13 @@ bool SecureSocket::loadCertificate(const QString &filename)
       SslLogger::logError("could not use tls private key from keychain");
       return false;
     }
+  } else if (const auto keyFile = Settings::value(Settings::Security::PrivateKeyFile).toString(); !keyFile.isEmpty()) {
+    // Separate key file, e.g. readable only by administrators while the certificate stays
+    // readable for the GUI.
+    if (SSL_CTX_use_PrivateKey_file(m_ssl->m_context, keyFile.toStdString().c_str(), SSL_FILETYPE_PEM) <= 0) {
+      SslLogger::logError("could not use tls private key file");
+      return false;
+    }
   } else if (SSL_CTX_use_PrivateKey_file(m_ssl->m_context, fName.c_str(), SSL_FILETYPE_PEM) <= 0) {
     SslLogger::logError("could not use tls private key");
     return false;

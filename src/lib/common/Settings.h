@@ -103,6 +103,8 @@ public:
     // macOS: keychain service of a generic password holding the PEM private key. When set, the
     // certificate file holds only the certificate (net/KeychainSecret.h).
     inline static const auto PrivateKeyKeychain = QStringLiteral("security/privateKeyKeychain");
+    // A separate PEM private key file; the certificate file then holds only the certificate.
+    inline static const auto PrivateKeyFile = QStringLiteral("security/privateKeyFile");
   };
   struct Server
   {
@@ -330,6 +332,7 @@ private:
     , Security::KeySize
     , Security::TlsEnabled
     , Security::PrivateKeyKeychain
+    , Security::PrivateKeyFile
     , Server::ClipboardSize
     , Server::DefaultLockToComputerState
     , Server::DisableLockToComputer

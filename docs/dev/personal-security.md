@@ -67,8 +67,9 @@ installs should be managed.
 Core, GUI and daemon remove `QT_PLUGIN_PATH`, `QT_QPA_PLATFORM_PLUGIN_PATH`, `QML(2)_IMPORT_PATH`
 and `OPENSSL_CONF`/`_CONF_INCLUDE`/`_MODULES`/`_ENGINES` before anything else
 (`common/ProcessHardening.h`), and OpenSSL is initialised without reading a configuration file.
-Only bundled plugins are loaded. This matters on macOS, where the app is signed locally with
-library validation disabled.
+Only bundled plugins are loaded. This is defence in depth: the deployed macOS app also runs under
+the hardened runtime with library validation on (re-signed with the deployer's Apple Development
+team), so differently-signed code can't be loaded in the first place.
 
 ## TLS private key in the keychain (macOS)
 
@@ -76,8 +77,8 @@ With `security/privateKeyKeychain=<service>`, the certificate file holds only th
 the core reads the PEM private key from the generic password `<service>` / `private-key` in the
 user's keychains, with keychain UI disabled (`net/KeychainSecret.h`). The item's access control
 should list only `deskflow-core`; the keychain identifies it by its designated requirement
-(identifier plus signing certificate), so the grant survives updates signed with the same
-identity, and other programs get a prompt (to be denied) or nothing.
+(identifier plus signing team), so the grant survives updates signed by the same team, and other
+programs get a prompt (to be denied) or nothing.
 
 ## Separate private key file
 

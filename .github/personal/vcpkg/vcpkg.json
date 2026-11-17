@@ -1,0 +1,8 @@
+{
+  "$comment": "C/C++ libraries for the personal release build. The baseline pins vcpkg (and with it every port and source download hash); the override makes the OpenSSL version explicit.",
+  "name": "deskflow-personal-deps",
+  "version-string": "1",
+  "builtin-baseline": "8f363bdc11359ede4bc51e5eb32a2617538049c8",
+  "dependencies": ["openssl"],
+  "overrides": [{ "name": "openssl", "version": "3.6.5", "port-version": 2 }]
+}

@@ -1,6 +1,7 @@
 # Personal macOS input-source fix
 
-Branch: `personal/macos-input-source-fix`
+Branch: `personal/main` (renamed from `personal/macos-input-source-fix` on 2026-11-16).
+Releases are built by CI, see [personal-release.md](personal-release.md).
 
 Base: pinned upstream commit `c4eb0426f` (`v1.27.0-28`). The first deployed
 personal build used `1d530d764` (`v1.26.0-512`), matching the original installation.

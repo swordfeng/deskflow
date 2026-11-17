@@ -1,0 +1,333 @@
+# SPDX-License-Identifier: MIT
+#
+# Personal release build: macOS arm64 app and Windows x64 MSI from this fork, with pinned
+# dependencies, two independent builds per platform that must agree, and build provenance.
+# See docs/dev/personal-release.md. Separate from the upstream workflows so rebases don't conflict.
+#
+#   push to personal/**  build both platforms twice and compare (no release)
+#   push tag sf-<ver>    the same, then attest and publish an immutable GitHub release
+#
+# Every action is pinned to a commit; every downloaded file is pinned by SHA-256
+# (.github/personal/deps.json) or, for vcpkg, by commit (.github/personal/vcpkg/vcpkg.json).
+
+name: Personal release
+
+on:
+  push:
+    branches: ["personal/**"]
+    tags: ["sf-*"]
+
+permissions: {}
+
+concurrency:
+  group: personal-release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  XCODE_APP: /Applications/Xcode_26.3.app
+  XCODE_BUILD: "17C529"
+  MSVC_TOOLSET: "14.44"
+  CL_VERSION: "19.44.35230"
+  WINDOWS_SDK: "10.0.26100.0"
+  CMAKE_VERSION: "4.5.0"
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }}, ${{ matrix.replica }})
+    runs-on: ${{ matrix.platform == 'macos' && 'macos-15' || 'windows-2022' }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos, windows]
+        # Two independent builds of the same commit on separate runners; the compare job
+        # requires their outputs to be identical.
+        replica: [a, b]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # version comes from git describe; tag checks need the main branch
+          persist-credentials: false
+
+      - name: Source info (version, tag checks, source dates)
+        shell: bash
+        run: |
+          PY=$([ "$RUNNER_OS" = Windows ] && echo python || echo python3)
+          echo "PY=$PY" >> "$GITHUB_ENV"
+          $PY .github/personal/repro.py source-info | tee -a "$GITHUB_ENV"
+          echo "WORK=$($PY -c 'import os, pathlib; print(pathlib.Path(os.environ["RUNNER_TEMP"]).as_posix())')" >> "$GITHUB_ENV"
+
+      - name: Toolchain (Xcode)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -version | grep -qx "Build version $XCODE_BUILD"
+
+      - name: Toolchain (MSVC)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $bat = Join-Path $vs 'VC\Auxiliary\Build\vcvarsall.bat'
+          $vars = cmd /c "`"$bat`" x64 $env:WINDOWS_SDK -vcvars_ver=$env:MSVC_TOOLSET -vcvars_spectre_libs=spectre >nul && set"
+          if ($LASTEXITCODE -ne 0) { throw "vcvarsall failed" }
+          foreach ($line in $vars) {
+            if ($line -match '^([^=]+)=(.*)$') { "$($Matches[1])=$($Matches[2])" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV }
+          }
+
+      - name: Dependencies (pinned downloads)
+        shell: bash
+        run: $PY .github/personal/fetch.py ${{ matrix.platform == 'macos' && 'mac' || 'win' }} "$WORK/deps" | tee -a "$GITHUB_ENV"
+
+      - name: Record and check toolchain
+        shell: bash
+        run: |
+          mkdir -p out
+          f=out/toolchain-${{ matrix.platform }}.txt
+          {
+            echo "runner image: $ImageOS $ImageVersion"
+            echo "commit: $GITHUB_SHA  version: $VERSION  SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH"
+            cmake --version | head -1
+            echo "ninja $(ninja --version)"
+            $PY --version
+            if [ "$RUNNER_OS" = macOS ]; then
+              xcodebuild -version | tr '\n' ' '; echo
+              clang --version | head -1
+              xcrun --show-sdk-version
+            else
+              cl 2>&1 | head -1
+              echo "Windows SDK: $WindowsSDKVersion"
+              dotnet --version
+            fi
+          } | tee "$f"
+          grep -q "^cmake version $CMAKE_VERSION\$" "$f"
+          if [ "$RUNNER_OS" = Windows ]; then grep -q "Version $CL_VERSION for x64" "$f"; fi
+
+      - name: vcpkg (pinned commit, no binary cache)
+        shell: bash
+        env:
+          VCPKG_DISABLE_METRICS: "1"
+          VCPKG_BINARY_SOURCES: clear
+          ZERO_AR_DATE: "1"
+        run: |
+          git init -q "$WORK/vcpkg"
+          cd "$WORK/vcpkg"
+          git fetch -q --depth 1 https://github.com/microsoft/vcpkg "$VCPKG_COMMIT"
+          git checkout -q FETCH_HEAD
+          if [ "$RUNNER_OS" = Windows ]; then
+            triplet=x64-windows-repro
+            cmd //c "bootstrap-vcpkg.bat -disableMetrics"
+          else
+            triplet=arm64-osx-repro
+            ./bootstrap-vcpkg.sh -disableMetrics
+          fi
+          ./vcpkg install \
+            --x-manifest-root="$GITHUB_WORKSPACE/.github/personal/vcpkg" \
+            --x-install-root="$WORK/vcpkg_installed" \
+            --overlay-triplets="$GITHUB_WORKSPACE/.github/personal/vcpkg/triplets" \
+            --triplet=$triplet --host-triplet=$triplet --clean-after-build
+          echo "VCPKG_PREFIX=$WORK/vcpkg_installed/$triplet" >> "$GITHUB_ENV"
+
+      - name: Build and test (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          ZERO_AR_DATE: "1"
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          export CFLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=. -ffile-prefix-map=$WORK=/work"
+          export CXXFLAGS="$CFLAGS"
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DSKIP_BUILD_TESTS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=14 \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT;$VCPKG_PREFIX" \
+            -DOPENSSL_ROOT_DIR="$VCPKG_PREFIX" -DOPENSSL_USE_STATIC_LIBS=ON \
+            -DPACKAGE_VERSION_LABEL="$VERSION"
+          cmake --build build
+          ctest --test-dir build/src/unittests --output-on-failure
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          ZERO_AR_DATE: "1"
+        run: |
+          cmake --install build --prefix "$WORK/stage"
+          app="$WORK/stage/Deskflow.app"
+          codesign --verify --deep --strict "$app"
+          # Everything the app loads must come from the bundle or the system.
+          bad=$(find "$app" -type f | while read -r f; do
+                  file -b "$f" | grep -q Mach-O || continue
+                  # Load commands only: skip the header lines (one per architecture in universal
+                  # binaries) and a library's own install name.
+                  id=$(otool -D "$f" | grep -v ':$' | head -1)
+                  otool -L "$f" | grep -v ':$' | awk '{print $1}' | grep -vxF "${id:-//none}" | grep -vE '^(@rpath|@loader_path|@executable_path|/usr/lib/|/System/)' | sed "s|^|$f: |" || true
+                done)
+          if [ -n "$bad" ]; then echo "$bad"; echo "non-bundled library references" >&2; exit 1; fi
+          "$app/Contents/MacOS/deskflow-core" --version
+          $PY .github/personal/repro.py zip "$WORK/stage" "out/deskflow-$VERSION-macos-arm64.zip"
+
+      - name: Build and test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CFLAGS: /Brepro
+          CXXFLAGS: /Brepro
+          LDFLAGS: /Brepro
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release -DSKIP_BUILD_TESTS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON `
+            -DCMAKE_STATIC_LINKER_FLAGS=/Brepro `
+            "-DCMAKE_PREFIX_PATH=$env:QT_ROOT;$env:VCPKG_PREFIX" `
+            "-DOPENSSL_ROOT_DIR=$env:VCPKG_PREFIX" `
+            "-DPACKAGE_VERSION_LABEL=$env:VERSION"
+          if ($LASTEXITCODE) { throw "configure failed" }
+          cmake --build build
+          if ($LASTEXITCODE) { throw "build failed" }
+          $env:PATH = "$env:VCPKG_PREFIX/bin;$env:PATH" # OpenSSL DLLs for the test executables
+          ctest --test-dir build/src/unittests --output-on-failure
+          if ($LASTEXITCODE) { throw "tests failed" }
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # WiX and its extensions only from the verified local packages: no other NuGet source.
+          $feed = (Resolve-Path "$env:DEPS_DIR/nuget").Path
+          $config = "<?xml version=`"1.0`" encoding=`"utf-8`"?><configuration><packageSources><clear /><add key=`"pinned`" value=`"$feed`" /></packageSources></configuration>"
+          New-Item -ItemType Directory -Force "$env:APPDATA\NuGet" | Out-Null
+          Set-Content "$env:APPDATA\NuGet\NuGet.Config" $config
+          Set-Content "$env:WORK\NuGet.Config" $config
+          dotnet tool install --global wix --version 5.0.2 --configfile "$env:WORK\NuGet.Config"
+          if ($LASTEXITCODE) { throw "wix install failed" }
+          $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+          Push-Location $env:WORK
+          foreach ($ext in 'WixToolset.UI.wixext', 'WixToolset.Util.wixext', 'WixToolset.Firewall.wixext') {
+            wix extension add --global "$ext/5.0.2"
+            if ($LASTEXITCODE) { throw "wix extension $ext failed" }
+          }
+          Pop-Location
+
+          cmake --build build --target package
+          if ($LASTEXITCODE) { throw "package failed" }
+          $msi = Get-ChildItem build -Filter "deskflow-$env:VERSION-*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "no MSI produced" }
+          Copy-Item $msi.FullName "out/deskflow-$env:VERSION-win-x64.msi"
+
+          cmake --install build --prefix "$env:WORK/stage"
+          if ($LASTEXITCODE) { throw "install failed" }
+          & "$env:WORK/stage/deskflow-core.exe" --version
+          if ($LASTEXITCODE) { throw "deskflow-core --version failed" }
+
+          # The MSI must install exactly the files of the install tree.
+          $x = Join-Path ($env:WORK -replace '/', '\') 'msi-admin'
+          $p = Start-Process msiexec.exe -ArgumentList '/a', "`"$($msi.FullName)`"", '/qn', "TARGETDIR=`"$x`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "msiexec /a failed: $($p.ExitCode)" }
+          $appDir = (Get-ChildItem $x -Recurse -Filter deskflow-core.exe | Select-Object -First 1).DirectoryName
+          & $env:PY .github/personal/repro.py diff "$env:WORK/stage" $appDir
+          if ($LASTEXITCODE) { throw "MSI contents differ from the install tree" }
+
+          & $env:PY .github/personal/repro.py zip "$env:WORK/stage" "out/deskflow-$env:VERSION-win-x64-files.zip"
+          if ($LASTEXITCODE) { throw "zip failed" }
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.platform }}-${{ matrix.replica }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
+
+  compare:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/personal
+
+      - name: Download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+
+      - name: Compare the two builds of each platform
+        shell: bash
+        run: |
+          status=0
+          {
+            echo "## Reproducibility"
+            echo
+            echo '```'
+            (cd artifacts && sha256sum */*.zip */*.msi)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          for pair in "macos:*-macos-arm64.zip" "windows:*-win-x64-files.zip"; do
+            p=${pair%%:*}; pat=${pair#*:}
+            a=$(ls artifacts/$p-a/$pat); b=$(ls artifacts/$p-b/$pat)
+            if cmp -s "$a" "$b"; then
+              echo "$p: identical" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              echo "$p: DIFFERENT" | tee -a "$GITHUB_STEP_SUMMARY"
+              python3 .github/personal/repro.py diff "$a" "$b" || true
+              status=1
+            fi
+          done
+          exit $status
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/sf-')
+    needs: [build, compare]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+
+      - name: Collect release files
+        shell: bash
+        run: |
+          mkdir release
+          cp artifacts/macos-a/*-macos-arm64.zip artifacts/windows-a/*-win-x64.msi artifacts/windows-a/*-win-x64-files.zip release/
+          cat artifacts/macos-a/toolchain-macos.txt artifacts/windows-a/toolchain-windows.txt > release/toolchains.txt
+          (cd release && sha256sum *) | tee sums.txt
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          {
+            echo "Personal build of \`$GITHUB_SHA\` (branch personal/main). Built twice per platform; both builds were identical."
+            echo
+            echo '```'
+            cat sums.txt
+            echo '```'
+            echo
+            echo "Verify: \`gh attestation verify <file> -R $GITHUB_REPOSITORY\`"
+          } > notes.md
+          gh release create "$TAG" release/* -R "$GITHUB_REPOSITORY" --verify-tag --draft --title "$TAG" --notes-file notes.md
+          gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false

@@ -1,0 +1,134 @@
+{
+  "_comment": "Every file the personal release build downloads, with its SHA-256. fetch.py refuses anything that does not match. Qt archives come from the official online repository (hashes cross-checked against the .sha256 files published next to them); tools from their projects' GitHub releases. vcpkg is pinned separately by commit (vcpkg/vcpkg.json), which pins its own downloads.",
+  "mac": [
+    {
+      "url": "https://github.com/ip7z/7zip/releases/download/26.06/7z2606-mac.tar.xz",
+      "sha256": "b6f17920b4240940461dac8ef4009891881ac44d2a5ead625ede2ec8472185dd",
+      "extract": "tar",
+      "into": "7zip"
+    },
+    {
+      "url": "https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-macos-universal.tar.gz",
+      "sha256": "a645d69fd21e521759cc0c64e7c60462d43faf0c7214ac05f75c80f7c5037dde",
+      "extract": "tar",
+      "into": "cmake",
+      "path": "cmake-4.5.0-macos-universal/CMake.app/Contents/bin"
+    },
+    {
+      "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-mac.zip",
+      "sha256": "c99048673aa765960a99cf10c6ddb9f1fad506099ff0a0e137ad8960a88f321b",
+      "extract": "zip",
+      "into": "ninja",
+      "path": ".",
+      "executable": [
+        "ninja"
+      ]
+    },
+    {
+      "url": "https://download.qt.io/online/qtsdkrepository/mac_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.clang_64/6.12.0-0-202609280346qtbase-MacOS-MacOS_26-Clang-MacOS-MacOS_26-X86_64-ARM64.7z",
+      "sha256": "1e0df66ed17ae97997971ff481983c5c0b7497a52ef52f699725701401fd80ee",
+      "extract": "7z",
+      "into": "qt"
+    },
+    {
+      "url": "https://download.qt.io/online/qtsdkrepository/mac_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.clang_64/6.12.0-0-202609280346qtdeclarative-MacOS-MacOS_26-Clang-MacOS-MacOS_26-X86_64-ARM64.7z",
+      "sha256": "6b070cade4201db28ed34f65331085c3916a718bc6a30ea24c2f57e67debacea",
+      "extract": "7z",
+      "into": "qt"
+    },
+    {
+      "url": "https://download.qt.io/online/qtsdkrepository/mac_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.clang_64/6.12.0-0-202609280346qtsvg-MacOS-MacOS_26-Clang-MacOS-MacOS_26-X86_64-ARM64.7z",
+      "sha256": "428c6d02a7bdaf832463aa97a19c1c0920a8e840c751499d05fa9e43dc69f172",
+      "extract": "7z",
+      "into": "qt"
+    },
+    {
+      "url": "https://download.qt.io/online/qtsdkrepository/mac_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.clang_64/6.12.0-0-202609280346qttools-MacOS-MacOS_26-Clang-MacOS-MacOS_26-X86_64-ARM64.7z",
+      "sha256": "c503c114fbb96a2c2dad07fae4d195cb800ab498c9deb440c879e657ec14e8f8",
+      "extract": "7z",
+      "into": "qt"
+    },
+    {
+      "url": "https://download.qt.io/online/qtsdkrepository/mac_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.clang_64/6.12.0-0-202609280346qttranslations-MacOS-MacOS_26-Clang-MacOS-MacOS_26-X86_64-ARM64.7z",
+      "sha256": "274dd3952f8b8b2b42e3e10887cb228b67e4a004f4ea8f0adb538f24abc0b58a",
+      "extract": "7z",
+      "into": "qt"
+    }
+  ],
+  "win": [
+    {
+      "url": "https://github.com/ip7z/7zip/releases/download/26.06/7zr.exe",
+      "sha256": "e80db2dad715a6c5adabe292d31ed54e11f4e9b99ca349827b50573b175891bc",
+      "extract": "none",
+      "into": "7zip"
+    },
+    {
+      "url": "https://github.com/Kitware/CMake/releases/download/v4.5.0/cmake-4.5.0-windows-x86_64.zip",
+      "sha256": "301b1728317ccd84e984b02e366a8293735bc5ac618757d3d8f58b578f062411",
+      "extract": "zip",
+      "into": "cmake",
+      "path": "cmake-4.5.0-windows-x86_64/bin"
+    },
+    {
+      "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip",
+      "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65",
+      "extract": "zip",
+      "into": "ninja",
+      "path": "."
+    },
+    {
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64/qt.qt6.6120.win64_msvc2022_64/6.12.0-0-202609280346qtbase-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+      "sha256": "219d1b86def3be418e31d704572bc4acc91b2ec373c65595c9fb12b42bf098dc",
+      "extract": "7z",
+      "into": "qt"
+    },
+    {
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64/qt.qt6.6120.win64_msvc2022_64/6.12.0-0-202609280346qtsvg-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+      "sha256": "dfcad02224b71724e3314d0bc3ffc0b862dfa6e02bc4aadd39f1738f6c364c79",
+      "extract": "7z",
+      "into": "qt"
+    },
+    {
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64/qt.qt6.6120.win64_msvc2022_64/6.12.0-0-202609280346qtdeclarative-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+      "sha256": "258146e9972fadbc1162cda31c7d7ed7e627f5022b2a848f2edb84d9c2ce27db",
+      "extract": "7z",
+      "into": "qt"
+    },
+    {
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64/qt.qt6.6120.win64_msvc2022_64/6.12.0-0-202609280346qttools-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+      "sha256": "73328e361429378df518f391ebe4d82c51e833f4d5a951692768ab5a5a1d7da5",
+      "extract": "7z",
+      "into": "qt"
+    },
+    {
+      "url": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64/qt.qt6.6120.win64_msvc2022_64/6.12.0-0-202609280346qttranslations-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+      "sha256": "328321e8879a3dc119775b4404d6e32ec2a361696e73f760540a732921507917",
+      "extract": "7z",
+      "into": "qt"
+    },
+    {
+      "url": "https://api.nuget.org/v3-flatcontainer/wix/5.0.2/wix.5.0.2.nupkg",
+      "sha256": "f30ef0c74e2a986126539c5780be93ac24e8136eaf723b1937b26272703ae173",
+      "extract": "none",
+      "into": "nuget"
+    },
+    {
+      "url": "https://api.nuget.org/v3-flatcontainer/wixtoolset.ui.wixext/5.0.2/wixtoolset.ui.wixext.5.0.2.nupkg",
+      "sha256": "5ef2c707614b9f70b6bbadd2d4abcb4124efee215e9b16bfbc80113079a604c7",
+      "extract": "none",
+      "into": "nuget"
+    },
+    {
+      "url": "https://api.nuget.org/v3-flatcontainer/wixtoolset.util.wixext/5.0.2/wixtoolset.util.wixext.5.0.2.nupkg",
+      "sha256": "dda1cc1b4d3b2305b1246f167c6af6fcded5000be84b3bbff3dda4f442bf4740",
+      "extract": "none",
+      "into": "nuget"
+    },
+    {
+      "url": "https://api.nuget.org/v3-flatcontainer/wixtoolset.firewall.wixext/5.0.2/wixtoolset.firewall.wixext.5.0.2.nupkg",
+      "sha256": "c9a1c99afab82225127b34036b719dea6c98c451e21b341ae1c62a674d0ba5ef",
+      "extract": "none",
+      "into": "nuget"
+    }
+  ]
+}

@@ -143,7 +143,7 @@ jobs:
           export CFLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=. -ffile-prefix-map=$WORK=/work"
           export CXXFLAGS="$CFLAGS"
           cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DSKIP_BUILD_TESTS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON \
+            -DCMAKE_BUILD_TYPE=Release -DSKIP_BUILD_TESTS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DDESKFLOW_REQUIRE_MANAGED=ON \
             -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=14 \
             -DCMAKE_PREFIX_PATH="$QT_ROOT;$VCPKG_PREFIX" \
             -DOPENSSL_ROOT_DIR="$VCPKG_PREFIX" -DOPENSSL_USE_STATIC_LIBS=ON \
@@ -183,7 +183,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           cmake -S . -B build -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release -DSKIP_BUILD_TESTS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON `
+            -DCMAKE_BUILD_TYPE=Release -DSKIP_BUILD_TESTS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DDESKFLOW_REQUIRE_MANAGED=ON `
             -DCMAKE_STATIC_LINKER_FLAGS=/Brepro `
             "-DCMAKE_PREFIX_PATH=$env:QT_ROOT;$env:VCPKG_PREFIX" `
             "-DOPENSSL_ROOT_DIR=$env:VCPKG_PREFIX" `

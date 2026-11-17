@@ -91,10 +91,10 @@ issue or comment is created by this workflow.
 
 ## Windows deployment
 
-The initial Windows deployment completed on 2026-11-16 from commit `f5872be93`
-(**1.27.0.39**). A subsequent deployment installed `a532a29f2`
-(**1.27.0.41**) in the GUI, core and daemon. The Mac remains on **1.27.0.37**
-(`4c0e6138f`). The Windows client
+Windows GUI, core and daemon are deployed at **1.27.0.42** (`a690d9cd4`),
+installed and live-tested on 2026-11-16. Earlier deployments used `f5872be93`
+(**1.27.0.39**) and `a532a29f2` (**1.27.0.41**). The Mac remains on
+**1.27.0.37** (`4c0e6138f`). The Windows client
 reconnected to the Mac server over TLS after the installed directory was replaced
 and its existing automatic LocalSystem service restarted. TLS identity/trust files
 were verified unchanged. Preserve the application, user/system configuration and
@@ -107,9 +107,10 @@ The full Windows build used MSVC 19.44, Qt 6.12.0 and OpenSSL 3.6.5 (vcpkg commi
 in CI for Qt's newer repository layout. The SDK must include qtdeclarative as well
 as qtbase, qttools, qtsvg and qttranslations: `lupdate.exe` depends on `Qt6Qml.dll`.
 Build with `BUILD_TESTS=ON`, `SKIP_BUILD_TESTS=ON` and
-`CMAKE_COMPILE_WARNING_AS_ERROR=ON`. All **29** non-invasive Windows CTest targets
-passed; only `MSWindowsClipboardTests`, which changes the live clipboard, was
-excluded. The installed staging directory ran `deskflow-core --version` with SDK
+`CMAKE_COMPILE_WARNING_AS_ERROR=ON`. All **30** non-invasive Windows CTest targets
+passed, including the new transport regression; only `MSWindowsClipboardTests`,
+which changes the live clipboard, was excluded. The installed staging directory
+ran `deskflow-core --version` with SDK
 paths removed from PATH. All 21 staged PE files had their DLL dependencies
 available, and all 68 staged files were hashed and verified during replacement.
 
@@ -163,7 +164,7 @@ processes survived, and no new Windows application-crash event was recorded.
 Twice the client logged `clipboard was updated`, then `server is dead` 9 seconds
 later and reconnected. Refreshing the watchdog on valid DCLP progress fixes a
 separate slow-transfer timeout, but did not resolve this incident. Windows was
-shut down before native stacks could be retrieved; the live defect remains open.
+shut down before native stacks could be retrieved during that session.
 
 A local loopback regression subsequently reproduced a concrete TLS receive bug.
 `SecureSocket::doRead()` yielded after its input buffer exceeded 1 MiB even when
@@ -194,8 +195,39 @@ The original capped-read condition fails the three boundary rows; draining
 OpenSSL plaintext passes them. The strict Mac build and all 31 non-invasive
 CTest targets pass. Claude and Codex reviewed the candidate and agreed that the
 demonstrated defect is ready to commit; the narrower plaintext check is retained.
-A fresh network record can wake the old receive
-loop in the local reproducer, so this alone does not prove the persistent Windows
-failure has been fixed. Native Windows transport tests and the original live
-large-image reproduction are still required after that host returns. Do not mark
-the candidate deployed or the incident resolved based on the Mac tests.
+A fresh network record can wake the old receive loop on the Mac, so these tests
+alone do not establish the persistent Windows failure. Native Windows results
+and the subsequent live reproduction provide the additional evidence below.
+
+On the next Windows startup, the strict native build of **1.27.0.42** and all
+30 non-invasive CTest targets passed. Restoring only the old capped-read
+condition reproduced a persistent TLS stall: the 28 MiB row assembled only
+1 MiB, and an additional CALV did not recover it. The plain TCP control passed.
+The smaller boundary rows also failed, but recovered after another record.
+Restoring the fix passed the native transport rows, including the normal
+production heartbeat lifecycle. Source was restored and rebuilt after the
+negative control; those temporary changes were never installed.
+
+A standalone Windows loopback probe found that repeating `WSAEventSelect` with
+the same mask did not signal existing unread bytes again, while a one-byte
+`recv` did. Additional arriving data could also signal readability, so this is
+not a claim that all future arrivals are suppressed. The native large-transfer
+regression establishes that fresh control traffic need not recover the blocked
+transfer. A TCP zero window has not been measured and should not be asserted
+as fact.
+
+Four saved Windows stack snapshots were retrieved at this startup. They mostly
+show waiting threads and are not known to coincide with the earlier disconnect
+window; retain them as supporting evidence rather than a matching fault stack.
+
+The deployed **1.27.0.42** passed the user's original large-image copy, switch
+to Windows, paste and repeated screen-switching check. Both clipboard update
+messages completed. At the follow-up 49 seconds after the second update, the
+same core process and TLS connection were still alive, with no server-dead or
+not-responding messages and no new Deskflow application-crash event. This exceeds
+the previous 9-second failure window and validates this reproduction; it does not
+establish long-term stability. The previous application and configuration backups
+remain available, and TLS identity/trust hashes were verified unchanged.
+
+Image transport still uses the existing bitmap format. This repair does not add
+PNG or another compressed clipboard representation.

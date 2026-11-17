@@ -24,8 +24,11 @@ add_library(common STATIC
   KeySequence.h
   KeySequence.cpp
   LogLevel.h
+  ManagedSettings.cpp
+  ManagedSettings.h
   NetworkProtocol.h
   PlatformInfo.h
+  ProcessHardening.h
   Settings.h
   Settings.cpp
   QSettingsProxy.cpp

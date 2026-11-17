@@ -100,6 +100,9 @@ public:
     inline static const auto Certificate = QStringLiteral("security/certificate");
     inline static const auto KeySize = QStringLiteral("security/keySize");
     inline static const auto TlsEnabled = QStringLiteral("security/tlsEnabled");
+    // macOS: keychain service of a generic password holding the PEM private key. When set, the
+    // certificate file holds only the certificate (net/KeychainSecret.h).
+    inline static const auto PrivateKeyKeychain = QStringLiteral("security/privateKeyKeychain");
   };
   struct Server
   {
@@ -200,6 +203,12 @@ public:
   static bool isServerConfigFileReadable();
   static bool isWritable();
   static bool isPortableMode();
+  /// Managed settings are in use (ManagedSettings.h).
+  static bool isManaged();
+  /// A managed settings file exists but may be changed by non-administrators; the core and the
+  /// daemon must not run.
+  static bool isManagedUntrusted();
+  static QString managedUntrustedReason();
   static QString settingsFile();
   static QString settingsPath();
   static QString serverConfigFile();
@@ -320,6 +329,7 @@ private:
     , Security::CheckPeers
     , Security::KeySize
     , Security::TlsEnabled
+    , Security::PrivateKeyKeychain
     , Server::ClipboardSize
     , Server::DefaultLockToComputerState
     , Server::DisableLockToComputer

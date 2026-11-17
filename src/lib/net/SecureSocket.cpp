@@ -15,6 +15,7 @@
 #include "deskflow/ipc/CoreIpc.h"
 #include "mt/Lock.h"
 #include "net/FingerprintDatabase.h"
+#include "net/KeychainSecret.h"
 #include "net/TCPSocket.h"
 #include "net/TSocketMultiplexerMethodJob.h"
 #include <net/SslLogger.h>
@@ -23,7 +24,9 @@
 #include <cstring>
 #include <iterator>
 #include <memory>
+#include <openssl/crypto.h>
 #include <openssl/err.h>
+#include <openssl/pem.h>
 #include <openssl/ssl.h>
 
 //
@@ -323,7 +326,27 @@ bool SecureSocket::loadCertificate(const QString &filename)
     return false;
   }
 
-  if (SSL_CTX_use_PrivateKey_file(m_ssl->m_context, fName.c_str(), SSL_FILETYPE_PEM) <= 0) {
+  if (const auto keychainService = Settings::value(Settings::Security::PrivateKeyKeychain).toString();
+      !keychainService.isEmpty()) {
+    // The private key is in the keychain, readable only by this program; the file holds only
+    // the certificate.
+    QString keychainError;
+    auto pem = deskflow::net::readKeychainSecret(keychainService, deskflow::net::kKeychainPrivateKeyAccount, keychainError);
+    if (pem.isEmpty()) {
+      SslLogger::logError(("could not read tls private key from keychain: " + keychainError).toStdString());
+      return false;
+    }
+    BIO *bio = BIO_new_mem_buf(pem.constData(), static_cast<int>(pem.size()));
+    EVP_PKEY *key = bio ? PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr) : nullptr;
+    BIO_free(bio);
+    OPENSSL_cleanse(pem.data(), static_cast<size_t>(pem.size()));
+    const bool used = key != nullptr && SSL_CTX_use_PrivateKey(m_ssl->m_context, key) > 0;
+    EVP_PKEY_free(key);
+    if (!used) {
+      SslLogger::logError("could not use tls private key from keychain");
+      return false;
+    }
+  } else if (SSL_CTX_use_PrivateKey_file(m_ssl->m_context, fName.c_str(), SSL_FILETYPE_PEM) <= 0) {
     SslLogger::logError("could not use tls private key");
     return false;
   }
@@ -338,6 +361,9 @@ bool SecureSocket::loadCertificate(const QString &filename)
 
 void SecureSocket::initContext(bool server)
 {
+  // Never read an OpenSSL configuration file: one could load arbitrary modules into this
+  // process. The first initialisation wins, so this must come before SSL_library_init.
+  OPENSSL_init_ssl(OPENSSL_INIT_NO_LOAD_CONFIG, nullptr);
   SSL_library_init();
 
   const SSL_METHOD *method;

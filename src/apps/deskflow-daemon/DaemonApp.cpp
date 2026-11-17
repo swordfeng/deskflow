@@ -49,6 +49,12 @@ void DaemonApp::saveLogLevel(const QString &logLevel) const
 
 void DaemonApp::setConfigFile(const QString &configFile)
 {
+  // With managed settings the core always runs from the managed file; a client can't choose.
+  if (Settings::isManaged() || Settings::isManagedUntrusted()) {
+    LOG_WARN("managed settings: ignoring config file from client: %s", configFile.toUtf8().constData());
+    return;
+  }
+
   LOG_DEBUG("config file updated: %s", configFile.toUtf8().constData());
   m_configFile = configFile;
   Settings::setValue(Settings::Daemon::ConfigFile, configFile);
@@ -57,7 +63,17 @@ void DaemonApp::setConfigFile(const QString &configFile)
 void DaemonApp::applyWatchdogCommand() const
 {
 #if defined(Q_OS_WIN)
-  if (m_configFile.isEmpty()) {
+  if (Settings::isManagedUntrusted()) {
+    LOG_ERR(
+        "refusing to start the core: managed settings file is not protected: %s",
+        qPrintable(Settings::managedUntrustedReason())
+    );
+    return;
+  }
+  // Managed: always the managed file, whatever a client asked for.
+  const auto configFile = Settings::isManaged() ? Settings::settingsFile() : m_configFile;
+
+  if (configFile.isEmpty()) {
     LOG_ERR("cannot apply watchdog command: no config file set");
     return;
   }
@@ -65,17 +81,17 @@ void DaemonApp::applyWatchdogCommand() const
   // QFileInfo::exists on a UNC path triggers SMB auth from this SYSTEM-context
   // process, leaking the machine NTLM hash to whoever controls the remote host.
   // Any local user can reach this via the IPC pipe, so reject remote paths up front.
-  if (m_configFile.startsWith(QStringLiteral("\\\\")) || m_configFile.startsWith(QStringLiteral("//"))) {
-    LOG_ERR("cannot apply watchdog command: remote config file paths are not allowed: %s", qPrintable(m_configFile));
+  if (configFile.startsWith(QStringLiteral("\\\\")) || configFile.startsWith(QStringLiteral("//"))) {
+    LOG_ERR("cannot apply watchdog command: remote config file paths are not allowed: %s", qPrintable(configFile));
     return;
   }
 
-  if (!QFileInfo::exists(m_configFile)) {
-    LOG_ERR("cannot apply watchdog command: config file does not exist: %s", qPrintable(m_configFile));
+  if (!QFileInfo::exists(configFile)) {
+    LOG_ERR("cannot apply watchdog command: config file does not exist: %s", qPrintable(configFile));
     return;
   }
 
-  QSettings config(m_configFile, QSettings::IniFormat);
+  QSettings config(configFile, QSettings::IniFormat);
   const auto coreMode = config.value(Settings::Core::CoreMode).toInt();
   const auto elevate = config.value(Settings::Daemon::Elevate, !Settings::isPortableMode()).toBool();
 
@@ -90,7 +106,7 @@ void DaemonApp::applyWatchdogCommand() const
   }
 
   const auto corePath = QStringLiteral("%1/%2").arg(QCoreApplication::applicationDirPath(), kCoreBinName);
-  const auto command = QStringLiteral("\"%1\" %2 --settings \"%3\"").arg(corePath, modeArg, m_configFile).toStdString();
+  const auto command = QStringLiteral("\"%1\" %2 --settings \"%3\"").arg(corePath, modeArg, configFile).toStdString();
 
   LOG_DEBUG("applying watchdog command (elevate: %s)", elevate ? "yes" : "no");
   m_pWatchdog->setProcessConfig(command, elevate);
@@ -168,8 +184,11 @@ void DaemonApp::run(QThread &daemonThread)
 #if defined(Q_OS_WIN)
   m_pWatchdog = std::make_unique<MSWindowsWatchdog>(m_foreground, *m_pFileLogOutputter);
 
-  if (const auto persistedConfig = Settings::value(Settings::Daemon::ConfigFile).toString();
-      !persistedConfig.isEmpty()) {
+  if (Settings::isManaged() || Settings::isManagedUntrusted()) {
+    // Start the core from the managed settings without waiting for a GUI (refused if untrusted).
+    applyWatchdogCommand();
+  } else if (const auto persistedConfig = Settings::value(Settings::Daemon::ConfigFile).toString();
+             !persistedConfig.isEmpty()) {
     LOG_DEBUG("using last known config file: %s", persistedConfig.toUtf8().constData());
     m_configFile = persistedConfig;
     applyWatchdogCommand();

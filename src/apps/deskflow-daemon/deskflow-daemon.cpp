@@ -11,6 +11,7 @@
 #include "base/EventQueue.h"
 #include "base/Log.h"
 #include "common/ExitCodes.h"
+#include "common/ProcessHardening.h"
 #include "common/Settings.h"
 #include "common/VersionInfo.h"
 #include "deskflow/ipc/DaemonIpcServer.h"
@@ -32,6 +33,8 @@ void handleError(const char *message = "Unrecognized error.");
 
 int main(int argc, char **argv)
 {
+  deskflow::hardenProcessEnvironment();
+
 #if defined(Q_OS_WIN)
   ArchMiscWindows::guardRuntimeVersion();
 

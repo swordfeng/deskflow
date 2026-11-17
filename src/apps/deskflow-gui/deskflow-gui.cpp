@@ -10,6 +10,7 @@
 #include "common/ExitCodes.h"
 #include "common/I18N.h"
 #include "common/PlatformInfo.h"
+#include "common/ProcessHardening.h"
 #include "common/UrlConstants.h"
 #include "common/VersionInfo.h"
 #include "gui/Diagnostic.h"
@@ -43,6 +44,8 @@ const static auto kHeader = QStringLiteral("%1: %2\n").arg(kAppName, kDisplayVer
 
 int main(int argc, char *argv[])
 {
+  deskflow::hardenProcessEnvironment();
+
   // Do not show ICC messages
 #if defined(Q_OS_UNIX) && defined(QT_DEBUG)
   // Fixes Fedora bug where qDebug() messages aren't printed.

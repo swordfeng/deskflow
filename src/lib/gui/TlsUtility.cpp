@@ -100,6 +100,12 @@ QByteArray certFingerprint(const QString &certPath)
 
 bool generateCertificate()
 {
+  // The TLS identity of a managed installation is provisioned by the administrator.
+  if (Settings::isManaged()) {
+    qWarning("managed settings in use, not generating a tls certificate");
+    return false;
+  }
+
   qDebug(
       "generating tls certificate, "
       "all clients must trust the new fingerprint"

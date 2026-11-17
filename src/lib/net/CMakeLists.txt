@@ -21,6 +21,8 @@ add_library(net STATIC
   IDataSocket.cpp
   IDataSocket.h
   IListenSocket.h
+  KeychainSecret.cpp
+  KeychainSecret.h
   ISocket.h
   ISocketFactory.h
   ISocketMultiplexerJob.h
@@ -59,4 +61,7 @@ if(WIN32)
     PUBLIC OpenSSL::applink
     PRIVATE Crypt32 ws2_32
   )
+elseif(APPLE)
+  # KeychainSecret.cpp
+  target_link_libraries(net PUBLIC "-framework Security" "-framework CoreFoundation")
 endif()

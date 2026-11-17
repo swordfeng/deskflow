@@ -13,6 +13,8 @@
 #include "base/Log.h"
 #include "common/Constants.h"
 #include "common/ExitCodes.h"
+#include "common/ProcessHardening.h"
+#include "common/Settings.h"
 #include "deskflow/ClientApp.h"
 #include "deskflow/ServerApp.h"
 #include "deskflow/ipc/CoreIpcServer.h"
@@ -69,6 +71,8 @@ App *createApp(const CoreArgParser &parser, EventQueue &events, const QString &p
 
 int main(int argc, char **argv)
 {
+  deskflow::hardenProcessEnvironment();
+
 #if defined(Q_OS_WIN)
   ArchMiscWindows::setInstanceWin32(GetModuleHandle(nullptr));
 #endif
@@ -115,6 +119,24 @@ int main(int argc, char **argv)
   }
 
   parser.parse();
+
+  // Managed settings (common/ManagedSettings.h): refuse to run on a managed file others could
+  // have written, and only in the mode it names.
+  if (Settings::isManagedUntrusted()) {
+    LOG_ERR(
+        "refusing to run: managed settings file is not protected: %s", qPrintable(Settings::managedUntrustedReason())
+    );
+    return s_exitConfig;
+  }
+  if (Settings::isManaged()) {
+    const auto managedMode = Settings::value(Settings::Core::CoreMode).value<Settings::CoreMode>();
+    if ((parser.serverMode() && managedMode != Settings::Server) ||
+        (parser.clientMode() && managedMode != Settings::Client)) {
+      LOG_ERR("refusing to run: mode differs from the managed settings");
+      return s_exitConfig;
+    }
+    LOG_INFO("using managed settings: %s", qPrintable(Settings::settingsFile()));
+  }
 
   EventQueue events;
   const auto processName = QFileInfo(argv[0]).fileName();

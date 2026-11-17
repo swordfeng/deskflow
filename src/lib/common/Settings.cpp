@@ -7,6 +7,7 @@
 #include "Settings.h"
 
 #include "LogLevel.h"
+#include "ManagedSettings.h"
 #include "NetworkProtocol.h"
 #include "UrlConstants.h"
 #include "common/KeyboardModifier.h"
@@ -26,6 +27,12 @@ Settings *Settings::instance()
 
 void Settings::setSettingsFile(const QString &settingsFile)
 {
+  if (isManaged()) {
+    if (QFileInfo(settingsFile).absoluteFilePath() != Settings::settingsFile())
+      qWarning().noquote() << "managed settings in use, ignoring settings file:" << settingsFile;
+    return;
+  }
+
   if (Settings::settingsFile() == settingsFile) {
     qDebug("settings file already set, skipping");
     return;
@@ -70,21 +77,29 @@ void Settings::clearState()
 Settings::Settings(QObject *parent) : QObject(parent), m_settingsWatcher{new QFileSystemWatcher(this)}
 {
   QString fileToLoad;
+  // Managed settings (ManagedSettings.h) take precedence over everything else.
+  if (isManaged()) {
+    fileToLoad = deskflow::managed::settingsFile();
+  } else {
+    if (isManagedUntrusted())
+      qCritical().noquote() << "ignoring managed settings file" << deskflow::managed::settingsFile() << ":"
+                            << managedUntrustedReason();
 #ifdef Q_OS_WIN
-  const auto portableFile = portableSettingsFile();
-  qDebug().noquote() << "checking for portable settings file at:" << portableFile;
-  if (QFile(portableFile).exists())
-    fileToLoad = portableFile;
+    const auto portableFile = portableSettingsFile();
+    qDebug().noquote() << "checking for portable settings file at:" << portableFile;
+    if (QFile(portableFile).exists())
+      fileToLoad = portableFile;
 #else
-  if (const auto xdgConfigHome = qEnvironmentVariable("XDG_CONFIG_HOME"); !xdgConfigHome.isEmpty())
-    fileToLoad = QStringLiteral("%1/%2/%2.conf").arg(xdgConfigHome, kAppName);
+    if (const auto xdgConfigHome = qEnvironmentVariable("XDG_CONFIG_HOME"); !xdgConfigHome.isEmpty())
+      fileToLoad = QStringLiteral("%1/%2/%2.conf").arg(xdgConfigHome, kAppName);
 #endif
-  else if (QFile(UserSettingFile).exists())
-    fileToLoad = UserSettingFile;
-  else if (QFile(SystemSettingFile).exists())
-    fileToLoad = SystemSettingFile;
-  else
-    fileToLoad = UserSettingFile;
+    else if (QFile(UserSettingFile).exists())
+      fileToLoad = UserSettingFile;
+    else if (QFile(SystemSettingFile).exists())
+      fileToLoad = SystemSettingFile;
+    else
+      fileToLoad = UserSettingFile;
+  }
 
   m_settings = new QSettings(fileToLoad, QSettings::IniFormat, this);
   m_settingsWritable = m_settings->isWritable();
@@ -435,7 +450,42 @@ bool Settings::isWritable()
 bool Settings::isPortableMode()
 {
   // Enable portable mode only if the portable settings file exists in the expected location.
-  return QFile(portableSettingsFile()).exists();
+  return !isManaged() && QFile(portableSettingsFile()).exists();
+}
+
+namespace {
+struct ManagedInfo
+{
+  deskflow::managed::State state = deskflow::managed::State::Absent;
+  QString reason;
+};
+
+// Checked once per process; independent of instance() so it can be used while Settings is
+// being constructed.
+const ManagedInfo &managedInfo()
+{
+  static const ManagedInfo info = [] {
+    ManagedInfo i;
+    i.state = deskflow::managed::state(&i.reason);
+    return i;
+  }();
+  return info;
+}
+} // namespace
+
+bool Settings::isManaged()
+{
+  return managedInfo().state == deskflow::managed::State::Trusted;
+}
+
+bool Settings::isManagedUntrusted()
+{
+  return managedInfo().state == deskflow::managed::State::Untrusted;
+}
+
+QString Settings::managedUntrustedReason()
+{
+  return managedInfo().reason;
 }
 
 QString Settings::settingsFile()
@@ -445,6 +495,11 @@ QString Settings::settingsFile()
 
 QString Settings::settingsPath()
 {
+  // Managed: everything that goes with the settings (TLS identity, trusted peers) lives next to
+  // the managed file, in the directory only administrators can change.
+  if (isManaged())
+    return QFileInfo(instance()->m_settings->fileName()).absolutePath();
+
 #ifdef Q_OS_WIN
   if (!isPortableMode())
     return SystemDir;

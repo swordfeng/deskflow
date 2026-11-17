@@ -34,9 +34,14 @@ enum class State
 struct PosixEntry
 {
   bool exists = false;
+  bool error = false; ///< the path could not be examined (e.g. permission denied): never trusted
   bool symlink = false;
   quint32 uid = 0;
   quint32 mode = 0;
+  bool sticky() const
+  {
+    return (mode & 01000) != 0;
+  }
 };
 
 /// One access control entry (Windows).
@@ -52,6 +57,7 @@ struct WinAce
 struct WinEntry
 {
   bool exists = false;
+  bool error = false; ///< the path could not be examined (e.g. access denied): never trusted
   bool reparsePoint = false;
   QString ownerSid;
   bool hasDacl = true;
@@ -68,14 +74,24 @@ inline constexpr quint32 kWinWriteMask = 0x2 /*FILE_WRITE_DATA, FILE_ADD_FILE*/ 
 /// LocalSystem, Administrators, TrustedInstaller.
 bool isWinAdminSid(const QString &sid);
 
-/// Pure checks, separated for tests. `why` gets the reason when the result is false.
-bool posixTrusted(const PosixEntry &file, const PosixEntry &dir, QString &why);
-bool windowsTrusted(const WinEntry &file, const WinEntry &dir, QString &why);
+/// Pure checks, separated for tests. `why` gets the reason when the result is false. `ancestors`
+/// is the chain of directories from the file's own directory up to the filesystem root; every one
+/// must be trusted, so a writable or attacker-owned parent can't let the protected file be
+/// replaced. A directory that is group/other-writable is still trusted if it is owner-restricted
+/// (POSIX sticky bit), since a non-owner then can't rename or delete the root-owned entry in it.
+bool posixTrusted(const PosixEntry &file, const QList<PosixEntry> &ancestors, QString &why);
+bool windowsTrusted(const WinEntry &file, const QList<WinEntry> &ancestors, QString &why);
 
 /// <system dir>/managed/Deskflow.conf
 QString settingsFile();
 
 /// Inspects the managed settings file on this system. `why` gets the reason for Untrusted.
 State state(QString *why = nullptr);
+
+/// True if `path` and its immediate directory are owned by root/an administrator and not writable
+/// by anyone else (and not a symlink/reparse point). Used in managed mode to refuse running a copy
+/// of the executable placed in a user-writable location, whose adjacent libraries an attacker
+/// could control. `why` gets the reason when false.
+bool pathIsAdminProtected(const QString &path, QString &why);
 
 } // namespace deskflow::managed

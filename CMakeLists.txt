@@ -24,6 +24,13 @@ endif()
 #Project level options
 option(BUILD_INSTALLER "Build installer" ON)
 option(ENABLE_COVERAGE "Enable test coverage" OFF)
+# Personal fork: refuse to run the core or daemon unless trusted managed settings are present, so a
+# deployed (privileged) install never falls back to user-controlled settings. See
+# docs/dev/personal-security.md. Off upstream.
+option(DESKFLOW_REQUIRE_MANAGED "Require trusted managed settings to run core/daemon" OFF)
+if(DESKFLOW_REQUIRE_MANAGED)
+  add_compile_definitions(DESKFLOW_REQUIRE_MANAGED=1)
+endif()
 if(UNIX)
   if(APPLE)
     option(BUILD_OSX_BUNDLE "Build mac os bundle" ON)

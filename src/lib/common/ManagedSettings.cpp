@@ -12,6 +12,8 @@
 #include <QFile>
 #include <QFileInfo>
 
+#include <cerrno>
+
 #if defined(Q_OS_WIN)
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -26,8 +28,15 @@ namespace deskflow::managed {
 
 namespace {
 
-bool posixEntryTrusted(const PosixEntry &e, const QString &what, QString &why)
+// A directory may be group/other-writable only if the sticky bit stops a non-owner from renaming
+// or deleting the root-owned entry inside it (e.g. /Library on macOS). A file itself must never be
+// writable by group or others.
+bool posixEntryTrusted(const PosixEntry &e, const QString &what, bool isDir, QString &why)
 {
+  if (e.error) {
+    why = QStringLiteral("%1 could not be examined").arg(what);
+    return false;
+  }
   if (!e.exists) {
     why = QStringLiteral("%1 does not exist").arg(what);
     return false;
@@ -40,7 +49,7 @@ bool posixEntryTrusted(const PosixEntry &e, const QString &what, QString &why)
     why = QStringLiteral("%1 is not owned by root").arg(what);
     return false;
   }
-  if ((e.mode & 022) != 0) {
+  if ((e.mode & 022) != 0 && !(isDir && e.sticky())) {
     why = QStringLiteral("%1 is writable by group or others").arg(what);
     return false;
   }
@@ -49,6 +58,10 @@ bool posixEntryTrusted(const PosixEntry &e, const QString &what, QString &why)
 
 bool winEntryTrusted(const WinEntry &e, const QString &what, QString &why)
 {
+  if (e.error) {
+    why = QStringLiteral("%1 could not be examined").arg(what);
+    return false;
+  }
   if (!e.exists) {
     why = QStringLiteral("%1 does not exist").arg(what);
     return false;
@@ -81,8 +94,11 @@ WinEntry readWinEntry(const QString &path)
   const auto absolute = QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
   const auto native = reinterpret_cast<const wchar_t *>(absolute.utf16());
   const auto attributes = GetFileAttributesW(native);
-  if (attributes == INVALID_FILE_ATTRIBUTES)
+  if (attributes == INVALID_FILE_ATTRIBUTES) {
+    const auto err = GetLastError();
+    e.error = err != ERROR_FILE_NOT_FOUND && err != ERROR_PATH_NOT_FOUND;
     return e;
+  }
   e.exists = true;
   e.reparsePoint = (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
 
@@ -93,7 +109,7 @@ WinEntry readWinEntry(const QString &path)
           native, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &owner, nullptr, &dacl,
           nullptr, &sd
       ) != ERROR_SUCCESS) {
-    e.ownerSid.clear(); // unreadable: fails the owner check
+    e.error = true; // security descriptor unreadable: never trusted
     return e;
   }
 
@@ -144,8 +160,10 @@ PosixEntry readPosixEntry(const QString &path)
 {
   PosixEntry e;
   struct stat st = {};
-  if (lstat(QFile::encodeName(path).constData(), &st) != 0)
+  if (lstat(QFile::encodeName(path).constData(), &st) != 0) {
+    e.error = errno != ENOENT; // genuinely absent vs. could not be examined
     return e;
+  }
   e.exists = true;
   e.symlink = S_ISLNK(st.st_mode);
   e.uid = st.st_uid;
@@ -153,6 +171,19 @@ PosixEntry readPosixEntry(const QString &path)
   return e;
 }
 #endif
+
+// From the file's own directory up to the filesystem root, so a writable or foreign-owned
+// ancestor can't let the protected file be replaced.
+QStringList ancestorChain(const QString &file)
+{
+  QStringList chain;
+  for (QDir dir = QFileInfo(file).absoluteDir(); ; ) {
+    chain.append(QDir::cleanPath(dir.absolutePath()));
+    if (dir.isRoot() || !dir.cdUp())
+      break;
+  }
+  return chain;
+}
 
 } // namespace
 
@@ -162,16 +193,42 @@ bool isWinAdminSid(const QString &sid)
          sid == QStringLiteral("S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464");
 }
 
-bool posixTrusted(const PosixEntry &file, const PosixEntry &dir, QString &why)
+bool posixTrusted(const PosixEntry &file, const QList<PosixEntry> &ancestors, QString &why)
 {
-  return posixEntryTrusted(dir, QStringLiteral("managed settings directory"), why) &&
-         posixEntryTrusted(file, QStringLiteral("managed settings file"), why);
+  if (!posixEntryTrusted(file, QStringLiteral("managed settings file"), false, why))
+    return false;
+  for (int i = 0; i < ancestors.size(); ++i) {
+    const auto what = (i == 0) ? QStringLiteral("managed settings directory")
+                               : QStringLiteral("ancestor directory (level %1)").arg(i);
+    if (!posixEntryTrusted(ancestors.at(i), what, true, why))
+      return false;
+  }
+  return true;
 }
 
-bool windowsTrusted(const WinEntry &file, const WinEntry &dir, QString &why)
+bool windowsTrusted(const WinEntry &file, const QList<WinEntry> &ancestors, QString &why)
 {
-  return winEntryTrusted(dir, QStringLiteral("managed settings directory"), why) &&
-         winEntryTrusted(file, QStringLiteral("managed settings file"), why);
+  if (!winEntryTrusted(file, QStringLiteral("managed settings file"), why))
+    return false;
+  for (int i = 0; i < ancestors.size(); ++i) {
+    const auto what = (i == 0) ? QStringLiteral("managed settings directory")
+                               : QStringLiteral("ancestor directory (level %1)").arg(i);
+    if (!winEntryTrusted(ancestors.at(i), what, why))
+      return false;
+  }
+  return true;
+}
+
+bool pathIsAdminProtected(const QString &path, QString &why)
+{
+  const auto dir = QFileInfo(path).absolutePath();
+#if defined(Q_OS_WIN)
+  return winEntryTrusted(readWinEntry(path), QStringLiteral("executable"), why) &&
+         winEntryTrusted(readWinEntry(dir), QStringLiteral("executable directory"), why);
+#else
+  return posixEntryTrusted(readPosixEntry(path), QStringLiteral("executable"), false, why) &&
+         posixEntryTrusted(readPosixEntry(dir), QStringLiteral("executable directory"), true, why);
+#endif
 }
 
 QString settingsFile()
@@ -182,19 +239,24 @@ QString settingsFile()
 State state(QString *why)
 {
   const auto file = settingsFile();
-  const auto dir = QFileInfo(file).absolutePath();
   QString reason;
   bool trusted = false;
 #if defined(Q_OS_WIN)
   const auto fileEntry = readWinEntry(file);
-  if (!fileEntry.exists)
+  if (!fileEntry.exists && !fileEntry.error)
     return State::Absent;
-  trusted = windowsTrusted(fileEntry, readWinEntry(dir), reason);
+  QList<WinEntry> ancestors;
+  for (const auto &a : ancestorChain(file))
+    ancestors.append(readWinEntry(a));
+  trusted = windowsTrusted(fileEntry, ancestors, reason);
 #else
   const auto fileEntry = readPosixEntry(file);
-  if (!fileEntry.exists)
+  if (!fileEntry.exists && !fileEntry.error)
     return State::Absent;
-  trusted = posixTrusted(fileEntry, readPosixEntry(dir), reason);
+  QList<PosixEntry> ancestors;
+  for (const auto &a : ancestorChain(file))
+    ancestors.append(readPosixEntry(a));
+  trusted = posixTrusted(fileEntry, ancestors, reason);
 #endif
   if (why != nullptr)
     *why = reason;

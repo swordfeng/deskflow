@@ -70,6 +70,12 @@ void DaemonApp::applyWatchdogCommand() const
     );
     return;
   }
+#ifdef DESKFLOW_REQUIRE_MANAGED
+  if (!Settings::isManaged()) {
+    LOG_ERR("refusing to start the core: this build requires trusted managed settings, which are absent");
+    return;
+  }
+#endif
   // Managed: always the managed file, whatever a client asked for.
   const auto configFile = Settings::isManaged() ? Settings::settingsFile() : m_configFile;
 
@@ -184,8 +190,13 @@ void DaemonApp::run(QThread &daemonThread)
 #if defined(Q_OS_WIN)
   m_pWatchdog = std::make_unique<MSWindowsWatchdog>(m_foreground, *m_pFileLogOutputter);
 
-  if (Settings::isManaged() || Settings::isManagedUntrusted()) {
-    // Start the core from the managed settings without waiting for a GUI (refused if untrusted).
+  bool requireManaged = false;
+#ifdef DESKFLOW_REQUIRE_MANAGED
+  requireManaged = true;
+#endif
+  if (Settings::isManaged() || Settings::isManagedUntrusted() || requireManaged) {
+    // Start the core from the managed settings without waiting for a GUI (refused if untrusted or,
+    // in a require-managed build, if absent).
     applyWatchdogCommand();
   } else if (const auto persistedConfig = Settings::value(Settings::Daemon::ConfigFile).toString();
              !persistedConfig.isEmpty()) {

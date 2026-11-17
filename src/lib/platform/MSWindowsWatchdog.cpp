@@ -136,30 +136,32 @@ MSWindowsWatchdog::getUserToken(LPSECURITY_ATTRIBUTES security, bool elevatedTok
   m_session.updateActiveSession();
 
   if (elevatedToken) {
+    // Run the core as LocalSystem in the interactive session. Duplicate the daemon's own SYSTEM
+    // token and move it to the console session, instead of copying a process found by the name
+    // "winlogon.exe": another account on the user's desktop could plant a process with that name,
+    // which would make the core run under the wrong (possibly attacker) token.
+    LOG_DEBUG("getting elevated token (duplicate of the daemon's own SYSTEM token)");
 
-    LOG_DEBUG("getting elevated token");
-
-    HANDLE process;
-    if (!m_session.isProcessInSession(L"winlogon.exe", &process)) {
-      throw std::runtime_error("cannot get user token without winlogon.exe");
+    HANDLE self = nullptr;
+    if (!OpenProcessToken(
+            GetCurrentProcess(), TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY, &self
+        )) {
+      throw std::runtime_error("could not open the daemon's own token: " + windowsErrorToString(GetLastError()));
     }
-    if (process == nullptr) {
-      throw std::runtime_error("found winlogon.exe but failed to open process handle");
+    HANDLE token = nullptr;
+    const BOOL duplicated = DuplicateTokenEx(
+        self, TOKEN_ASSIGN_PRIMARY | TOKEN_ALL_ACCESS, security, SecurityImpersonation, TokenPrimary, &token
+    );
+    CloseHandle(self);
+    if (!duplicated) {
+      throw std::runtime_error("could not duplicate the daemon's own token: " + windowsErrorToString(GetLastError()));
     }
-
-    try {
-      HANDLE token = duplicateProcessToken(process, security);
-      if (process != nullptr) {
-        CloseHandle(process);
-      }
-      return token;
-    } catch (...) {
-      LOG_ERR("failed to duplicate user token from winlogon.exe");
-      if (process != nullptr) {
-        CloseHandle(process);
-      }
-      throw;
+    DWORD session = m_session.getActiveSessionId();
+    if (!SetTokenInformation(token, TokenSessionId, &session, sizeof(session))) {
+      CloseHandle(token);
+      throw std::runtime_error("could not set the token session: " + windowsErrorToString(GetLastError()));
     }
+    return token;
   } else {
     LOG_DEBUG("getting non-elevated token");
     return m_session.getUserToken(security);

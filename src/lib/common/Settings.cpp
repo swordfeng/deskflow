@@ -530,7 +530,16 @@ QString Settings::logLevelText()
 
 void Settings::setValue(const QString &key, const QVariant &value)
 {
-  const bool useState = Settings::m_stateKeys.contains(key) && !instance()->isPortableMode();
+  // Managed settings are administrator-only; the application never writes them (e.g. the daemon
+  // persisting a log level from a GUI connection would otherwise rewrite the provisioned file).
+  // State keys (window geometry, portal tokens) still go to the separate per-user state file.
+  const bool stateKey = Settings::m_stateKeys.contains(key);
+  if (isManaged() && !stateKey) {
+    qWarning().noquote() << "managed settings are read-only, ignoring change to" << key;
+    return;
+  }
+
+  const bool useState = stateKey && !instance()->isPortableMode();
   auto settings = useState ? instance()->m_stateSettings : instance()->m_settings;
 
   if (settings->value(key) == value)

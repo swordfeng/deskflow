@@ -13,6 +13,7 @@
 #include "base/Log.h"
 #include "common/Constants.h"
 #include "common/ExitCodes.h"
+#include "common/ManagedSettings.h"
 #include "common/ProcessHardening.h"
 #include "common/Settings.h"
 #include "deskflow/ClientApp.h"
@@ -128,11 +129,25 @@ int main(int argc, char **argv)
     );
     return s_exitConfig;
   }
+#ifdef DESKFLOW_REQUIRE_MANAGED
+  if (!Settings::isManaged()) {
+    LOG_ERR("refusing to run: this build requires trusted managed settings, which are absent");
+    return s_exitConfig;
+  }
+#endif
   if (Settings::isManaged()) {
     const auto managedMode = Settings::value(Settings::Core::CoreMode).value<Settings::CoreMode>();
     if ((parser.serverMode() && managedMode != Settings::Server) ||
         (parser.clientMode() && managedMode != Settings::Client)) {
       LOG_ERR("refusing to run: mode differs from the managed settings");
+      return s_exitConfig;
+    }
+    // Defence in depth for the privileged install: refuse to run a copy placed in a
+    // user-writable location (whose adjacent libraries/plugins an attacker could control). The
+    // real install is owned by root/an administrator.
+    const auto exePath = QFileInfo(QCoreApplication::applicationFilePath()).canonicalFilePath();
+    if (QString why; !deskflow::managed::pathIsAdminProtected(exePath, why)) {
+      LOG_ERR("refusing to run from an unprotected location (%s): %s", qPrintable(exePath), qPrintable(why));
       return s_exitConfig;
     }
     LOG_INFO("using managed settings: %s", qPrintable(Settings::settingsFile()));

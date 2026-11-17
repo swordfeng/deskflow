@@ -11,6 +11,8 @@ if(WIN32)
   set(PLATFORM_CODE
     win32/AppUtilWindows.cpp
     win32/AppUtilWindows.h
+    ipc/IpcPeerWin.cpp
+    ipc/IpcPeerWin.h
   )
 elseif(UNIX)
   set(PLATFORM_CODE
@@ -79,6 +81,7 @@ add_library(${lib_name} STATIC ${PLATFORM_CODE}
   StreamChunker.h
   KeyboardLayoutManager.cpp
   KeyboardLayoutManager.h
+  ipc/IpcPeerPolicy.h
   ipc/IpcServer.cpp
   ipc/IpcServer.h
   ipc/DaemonIpcServer.cpp

@@ -63,3 +63,11 @@ if(BUILD_X11_SUPPORT)
   )
 endif()
 
+
+create_test(
+  NAME IpcPeerPolicyTests
+  DEPENDS app
+  LIBS arch base ${extra_libs}
+  SOURCE IpcPeerPolicyTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/deskflow"
+)

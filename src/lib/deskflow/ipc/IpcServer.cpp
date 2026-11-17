@@ -12,6 +12,10 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 
+#if defined(Q_OS_WIN)
+#include "IpcPeerWin.h"
+#endif
+
 namespace deskflow::core::ipc {
 
 IpcServer::IpcServer(QObject *parent, const QString &serverName, const QString &typeName)
@@ -31,6 +35,7 @@ IpcServer::~IpcServer()
 void IpcServer::listen()
 {
   // IPC server normally runs as system, but GUI runs as regular user, so we need to allow world access.
+  // On Windows each connection is then checked in handleNewConnection (IpcPeerPolicy.h).
   m_server->setSocketOptions(QLocalServer::WorldAccessOption);
 
   connect(m_server, &QLocalServer::newConnection, this, &IpcServer::handleNewConnection);
@@ -49,6 +54,26 @@ void IpcServer::handleNewConnection()
     LOG_ERR("%s ipc server failed to get new connection", m_typeName.constData());
     return;
   }
+
+#if defined(Q_OS_WIN)
+  // The pipe is open to everyone (see listen), and the daemon runs as LocalSystem and starts the
+  // core elevated from a settings file the client names; so only serve the console user and
+  // LocalSystem, never other local accounts, other sessions or sandboxed processes.
+  QString peerError;
+  const auto peer = queryIpcPeer(clientSocket, peerError);
+  const auto verdict = peer ? evaluateIpcPeer(*peer, currentIpcPolicyContext()) : IpcPeerVerdict{false, peerError};
+  if (!verdict.allowed) {
+    LOG_WARN(
+        "%s ipc server refused connection: %s (user %s, session %u, integrity 0x%x)", m_typeName.constData(),
+        verdict.reason.toUtf8().constData(), peer ? peer->userSid.toUtf8().constData() : "?",
+        peer ? peer->sessionId : 0u, peer ? peer->integrityRid : 0u
+    );
+    clientSocket->abort();
+    clientSocket->deleteLater();
+    return;
+  }
+  LOG_DEBUG("%s ipc server accepted connection: %s", m_typeName.constData(), verdict.reason.toUtf8().constData());
+#endif
 
   LOG_DEBUG("%s ipc server got new connection", m_typeName.constData());
   m_clients.insert(clientSocket);

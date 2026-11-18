@@ -56,7 +56,7 @@ bool posixEntryTrusted(const PosixEntry &e, const QString &what, bool isDir, QSt
   return true;
 }
 
-bool winEntryTrusted(const WinEntry &e, const QString &what, QString &why)
+bool winEntryTrusted(const WinEntry &e, const QString &what, QString &why, bool allowCreateOnly = false)
 {
   if (e.error) {
     why = QStringLiteral("%1 could not be examined").arg(what);
@@ -79,7 +79,10 @@ bool winEntryTrusted(const WinEntry &e, const QString &what, QString &why)
     return false;
   }
   for (const auto &ace : e.aces) {
-    if (ace.allow && !ace.inheritOnly && (ace.mask & kWinWriteMask) != 0 && !isWinAdminSid(ace.sid)) {
+    if (!ace.allow || ace.inheritOnly || isWinAdminSid(ace.sid))
+      continue;
+    const quint32 forbidden = allowCreateOnly ? (kWinWriteMask & ~kWinCreateOnlyMask) : kWinWriteMask;
+    if ((ace.mask & forbidden) != 0) {
       why = QStringLiteral("%1 grants write access to %2").arg(what, ace.sid);
       return false;
     }
@@ -213,7 +216,7 @@ bool windowsTrusted(const WinEntry &file, const QList<WinEntry> &ancestors, QStr
   for (int i = 0; i < ancestors.size(); ++i) {
     const auto what = (i == 0) ? QStringLiteral("managed settings directory")
                                : QStringLiteral("ancestor directory (level %1)").arg(i);
-    if (!winEntryTrusted(ancestors.at(i), what, why))
+    if (!winEntryTrusted(ancestors.at(i), what, why, i >= kWinCreateOnlyAncestorLevel))
       return false;
   }
   return true;

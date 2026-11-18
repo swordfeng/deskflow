@@ -71,6 +71,19 @@ inline constexpr quint32 kWinWriteMask = 0x2 /*FILE_WRITE_DATA, FILE_ADD_FILE*/ 
                                          0x40000 /*WRITE_DAC*/ | 0x80000 /*WRITE_OWNER*/ |
                                          0x10000000 /*GENERIC_ALL*/ | 0x40000000 /*GENERIC_WRITE*/;
 
+/// Rights that only let a non-administrator add new entries to a directory (and set its
+/// attributes/EAs): FILE_ADD_FILE, FILE_ADD_SUBDIRECTORY, FILE_WRITE_EA, FILE_WRITE_ATTRIBUTES.
+/// Without FILE_DELETE_CHILD on the directory or DELETE on an entry, an existing entry can't be
+/// renamed, deleted or replaced: the Windows counterpart of the POSIX sticky bit. Windows grants
+/// this on C:\ (Authenticated Users) and C:\ProgramData (Users) by default.
+inline constexpr quint32 kWinCreateOnlyMask = 0x2 | 0x4 | 0x10 | 0x100;
+
+/// Ancestors at this level and above (0 = the managed directory, 1 = the system dir
+/// <SystemDir>, 2 = its parent, e.g. C:\ProgramData) may grant non-administrators create-only
+/// rights. The managed directory and the system dir must not: there a user could plant a file the
+/// settings refer to before it exists.
+inline constexpr int kWinCreateOnlyAncestorLevel = 2;
+
 /// LocalSystem, Administrators, TrustedInstaller.
 bool isWinAdminSid(const QString &sid);
 
@@ -79,6 +92,8 @@ bool isWinAdminSid(const QString &sid);
 /// must be trusted, so a writable or attacker-owned parent can't let the protected file be
 /// replaced. A directory that is group/other-writable is still trusted if it is owner-restricted
 /// (POSIX sticky bit), since a non-owner then can't rename or delete the root-owned entry in it.
+/// On Windows, ancestors from kWinCreateOnlyAncestorLevel up may grant create-only rights
+/// (kWinCreateOnlyMask) to non-administrators, for the same reason.
 bool posixTrusted(const PosixEntry &file, const QList<PosixEntry> &ancestors, QString &why);
 bool windowsTrusted(const WinEntry &file, const QList<WinEntry> &ancestors, QString &why);
 

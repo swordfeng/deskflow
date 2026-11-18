@@ -22,6 +22,9 @@ private Q_SLOTS:
   void windowsUserWriteAceIsRefused();
   void windowsUsersMayCreateFilesInDirectoryIsRefused();
   void windowsUnprotectedAncestorIsRefused();
+  void windowsDefaultSystemAncestorsAreTrusted();
+  void windowsCreateOnlyInSystemDirIsRefused();
+  void windowsDeleteChildInHighAncestorIsRefused();
   void windowsInheritOnlyCreatorOwnerIsIgnored();
   void windowsDenyAceIsIgnored();
   void windowsNullDaclIsRefused();

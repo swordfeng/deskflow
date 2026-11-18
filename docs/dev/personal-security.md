@@ -44,7 +44,10 @@ In managed mode:
 The whole ancestor directory chain, up to the filesystem root, must also be admin/root-owned and
 not writable by anyone else, so a writable or foreign-owned parent can't be used to rename or
 replace the protected directory. A group/other-writable directory is accepted only if it is
-owner-restricted (POSIX sticky bit, e.g. `/Library`). The checks fail closed: a path that can't be
+owner-restricted (POSIX sticky bit, e.g. `/Library`). The Windows counterpart: directories above
+the system dir (`C:\ProgramData`, `C:\`) may let non-administrators add files and subdirectories
+(Windows' default), but not delete children, write the DACL/owner or delete the directory; the
+managed directory and `C:\ProgramData\Deskflow` itself may not. The checks fail closed: a path that can't be
 examined (access denied, etc.) counts as untrusted, not absent.
 
 If the file exists but fails the check, the core and the daemon refuse to run instead of falling

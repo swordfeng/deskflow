@@ -24,6 +24,8 @@ const auto kUser = QStringLiteral("S-1-5-21-1-2-3-1001");
 constexpr quint32 kReadExecute = 0x1200a9; // FILE_GENERIC_READ | FILE_EXECUTE
 constexpr quint32 kFull = 0x1f01ff;        // FILE_ALL_ACCESS
 constexpr quint32 kAddFile = 0x2;          // FILE_ADD_FILE (directory)
+constexpr quint32 kAddSubdir = 0x4;        // FILE_ADD_SUBDIRECTORY
+constexpr quint32 kDeleteChild = 0x40;     // FILE_DELETE_CHILD
 
 PosixEntry posix(quint32 uid, quint32 mode, bool symlink = false)
 {
@@ -168,6 +170,46 @@ void ManagedSettingsTests::windowsUnprotectedAncestorIsRefused()
   QString why;
   QVERIFY(!windowsTrusted(adminOnly(), QList<WinEntry>{adminOnly(), parent, adminOnly()}, why));
   QVERIFY(why.contains(QStringLiteral("ancestor")));
+}
+
+// Windows' default ACLs: C:\ProgramData lets Users add files and subdirectories (and set
+// attributes/EAs); C:\ lets Authenticated Users add subdirectories. Neither lets them rename or
+// delete C:\ProgramData\Deskflow, so they are acceptable above the system dir.
+QList<WinEntry> winDefaultChain()
+{
+  auto programData = adminOnly();
+  programData.ownerSid = kSystem;
+  programData.aces.append({kUsers, kAddFile | kAddSubdir | 0x10 | 0x100, true, false});
+  auto root = adminOnly();
+  root.ownerSid = kSystem;
+  root.aces.append({kAuthenticated, kAddSubdir, true, false});
+  return {adminOnly(), adminOnly(), programData, root}; // managed, Deskflow, ProgramData, root
+}
+
+void ManagedSettingsTests::windowsDefaultSystemAncestorsAreTrusted()
+{
+  QString why;
+  QVERIFY2(windowsTrusted(adminOnly(), winDefaultChain(), why), qPrintable(why));
+}
+
+void ManagedSettingsTests::windowsCreateOnlyInSystemDirIsRefused()
+{
+  // C:\ProgramData\Deskflow itself must not let users add entries (e.g. a missing tls file).
+  auto chain = winDefaultChain();
+  chain[1].aces.append({kUsers, kAddFile, true, false});
+  QString why;
+  QVERIFY(!windowsTrusted(adminOnly(), chain, why));
+  QVERIFY(why.contains(QStringLiteral("level 1")));
+}
+
+void ManagedSettingsTests::windowsDeleteChildInHighAncestorIsRefused()
+{
+  // Delete-child on C:\ProgramData would let a user replace C:\ProgramData\Deskflow.
+  auto chain = winDefaultChain();
+  chain[2].aces.append({kUsers, kDeleteChild, true, false});
+  QString why;
+  QVERIFY(!windowsTrusted(adminOnly(), chain, why));
+  QVERIFY(why.contains(QStringLiteral("level 2")));
 }
 
 void ManagedSettingsTests::windowsInheritOnlyCreatorOwnerIsIgnored()

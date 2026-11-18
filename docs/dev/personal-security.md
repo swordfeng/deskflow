@@ -11,8 +11,8 @@ daemon), but each connection's client process token is checked (`ipc/IpcPeerPoli
 `ipc/IpcPeerWin.cpp`). Served: LocalSystem, the server's own user, and the user logged on at the
 console from a process in the console session. Refused: other accounts (e.g. sandbox users),
 other sessions, remote clients, AppContainer and restricted tokens, below medium integrity. A
-connection is treated as local only when the client's computer name matches this host; any error
-determining it is rejected (fail closed).
+connection is treated as local only when Windows returns `ERROR_PIPE_LOCAL` for the client
+computer name query. A returned computer name or any other error is rejected.
 
 ## Elevated core launch (Windows)
 

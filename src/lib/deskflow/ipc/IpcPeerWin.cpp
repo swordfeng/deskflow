@@ -95,22 +95,16 @@ std::optional<IpcPeer> queryIpcPeer(const QLocalSocket *socket, QString &error)
     return std::nullopt;
   }
 
-  // Only local clients: for a remote one (named pipes are reachable over SMB) the client process
-  // id and session would refer to another machine. Accept only when the client's computer name can
-  // be read and equals this computer's; any failure or mismatch is rejected (fail closed).
+  // A local pipe has no remote computer name: Windows reports ERROR_PIPE_LOCAL.
+  // Reject named remote peers and every other error before querying the client process.
   wchar_t clientComputer[MAX_COMPUTERNAME_LENGTH + 1] = {};
-  if (!GetNamedPipeClientComputerNameW(pipe, clientComputer, sizeof(clientComputer))) {
-    error = QStringLiteral("cannot determine client computer (error %1)").arg(GetLastError());
-    return std::nullopt;
-  }
-  wchar_t localComputer[MAX_COMPUTERNAME_LENGTH + 1] = {};
-  DWORD localLen = ARRAYSIZE(localComputer);
-  if (!GetComputerNameW(localComputer, &localLen)) {
-    error = QStringLiteral("cannot determine local computer (error %1)").arg(GetLastError());
-    return std::nullopt;
-  }
-  if (_wcsicmp(clientComputer, localComputer) != 0) {
+  if (GetNamedPipeClientComputerNameW(pipe, clientComputer, ARRAYSIZE(clientComputer))) {
     error = QStringLiteral("remote client");
+    return std::nullopt;
+  }
+  const auto computerError = GetLastError();
+  if (computerError != ERROR_PIPE_LOCAL) {
+    error = QStringLiteral("cannot determine client computer (error %1)").arg(computerError);
     return std::nullopt;
   }
 
